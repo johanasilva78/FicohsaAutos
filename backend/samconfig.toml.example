@@ -1,0 +1,9 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "ficohsa-autos-backend"
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+region = "us-east-1"
+parameter_overrides = "AllowedOrigin=https://TU-DOMINIO.amplifyapp.com BedrockModelId=amazon.nova-lite-v1:0"

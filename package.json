@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "backend:check": "npm --prefix backend run typecheck",
+    "backend:test": "npm --prefix backend test",
     "lint": "eslint .",
     "preview": "vite preview"
   },

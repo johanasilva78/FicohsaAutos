@@ -7,6 +7,7 @@ import {
   Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, UploadCloud,
   UserRound, UsersRound, X, XCircle,
 } from 'lucide-react'
+import { registerAndAnalyze, type ClaimRegistration } from './api/claims'
 
 type View = 'dashboard' | 'cases' | 'reports' | 'new' | 'detail'
 type Risk = 'Alto' | 'Medio' | 'Bajo'
@@ -140,30 +141,40 @@ function Cases({ openClaim, setView }: { openClaim: (c: Claim) => void, setView:
 
 function NewAnalysis({ onDone, onCancel }: { onDone: (claim: Claim) => void, onCancel: () => void }) {
   const [step, setStep] = useState(1)
-  const [files, setFiles] = useState<string[]>(['Declaración_accidente.pdf', 'Foto_frontal_vehículo.jpg'])
+  const [files, setFiles] = useState<File[]>([])
   const [analyzing, setAnalyzing] = useState(false)
+  const [error, setError] = useState('')
+  const [form, setForm] = useState<ClaimRegistration>({ policyNumber:'AUT-HN-884291', occurredAt:'2026-08-29T22:40', insuredName:'Carlos Mendoza', identityDocument:'0801-1985-04127', vehicle:'Toyota Hilux 2023', plate:'HAB 4821', location:'Boulevard Morazán, Tegucigalpa', description:'Colisión frontal contra poste luego de perder el control del vehículo.' })
   const input = useRef<HTMLInputElement>(null)
-  const next = () => {
+  const field = (name: keyof ClaimRegistration) => ({ value:form[name], onChange:(event:React.ChangeEvent<HTMLInputElement|HTMLTextAreaElement>)=>setForm({...form,[name]:event.target.value}) })
+  const next = async () => {
     if (step < 3) setStep(step + 1)
-    else { setAnalyzing(true); window.setTimeout(() => onDone(claims[0]), 1600) }
+    else {
+      setAnalyzing(true); setError('')
+      try {
+        const saved=await registerAndAnalyze(form,files)
+        onDone({id:saved.id,insured:saved.insuredName,vehicle:saved.vehicle,plate:saved.plate,date:new Date(saved.createdAt).toLocaleDateString('es-HN',{day:'2-digit',month:'short',year:'numeric'}),risk:saved.analysis?.risk||'Medio',score:saved.analysis?.score||0,status:saved.status==='COMPLETED'?'Analizado':'En análisis',reason:saved.analysis?.summary||'Análisis solicitado'})
+      } catch (cause) { setError(cause instanceof Error?cause.message:'No fue posible registrar el siniestro'); setAnalyzing(false) }
+    }
   }
-  const addFiles = (list: FileList | null) => list && setFiles([...files, ...Array.from(list).map(f => f.name)])
+  const addFiles = (list: FileList | null) => list && setFiles([...files, ...Array.from(list)].slice(0,10))
   return <div className="page form-page">
     <button className="back-link" onClick={onCancel}><ArrowLeft/>Volver a siniestros</button>
     <div className="form-title"><div><h1>Nuevo análisis de siniestro</h1><p>Ingresa la información para ejecutar las validaciones automáticas.</p></div><span>Borrador guardado</span></div>
     <div className="stepper">{['Información del siniestro','Documentos y evidencias','Revisión y análisis'].map((x,i) => <div className={step >= i+1 ? 'active' : ''} key={x}><span>{step > i+1 ? <Check/> : i+1}</span><b>{x}</b>{i < 2 && <i/>}</div>)}</div>
     <section className="panel form-panel">
       {step === 1 && <><div className="section-heading"><span><Car/></span><div><h3>Datos del siniestro</h3><p>Completa los campos obligatorios para identificar el caso.</p></div></div>
-        <div className="form-grid"><label>Número de póliza *<div className="input-action"><input defaultValue="AUT-HN-884291"/><button>Validar</button></div><small className="valid"><CheckCircle2/>Póliza vigente hasta 14/02/2027</small></label><label>Fecha y hora del siniestro *<input type="datetime-local" defaultValue="2026-08-29T22:40"/></label><label>Nombre del asegurado *<input defaultValue="Carlos Mendoza"/></label><label>Documento de identidad *<input defaultValue="0801-1985-04127"/></label><label>Vehículo *<input defaultValue="Toyota Hilux 2023"/></label><label>Placa *<input defaultValue="HAB 4821"/></label><label className="wide">Lugar del siniestro *<input defaultValue="Boulevard Morazán, Tegucigalpa"/></label><label className="wide">Descripción del accidente *<textarea defaultValue="Colisión frontal contra poste luego de perder el control del vehículo."/><small className="counter">83 / 500</small></label></div></>}
+        <div className="form-grid"><label>Número de póliza *<div className="input-action"><input {...field('policyNumber')}/><button>Validar</button></div><small className="valid"><CheckCircle2/>Póliza vigente hasta 14/02/2027</small></label><label>Fecha y hora del siniestro *<input type="datetime-local" {...field('occurredAt')}/></label><label>Nombre del asegurado *<input {...field('insuredName')}/></label><label>Documento de identidad *<input {...field('identityDocument')}/></label><label>Vehículo *<input {...field('vehicle')}/></label><label>Placa *<input {...field('plate')}/></label><label className="wide">Lugar del siniestro *<input {...field('location')}/></label><label className="wide">Descripción del accidente *<textarea maxLength={2000} {...field('description')}/><small className="counter">{form.description.length} / 2000</small></label></div></>}
       {step === 2 && <><div className="section-heading"><span><Paperclip/></span><div><h3>Documentos y evidencias</h3><p>Adjunta los soportes. El sistema aplicará OCR y validaciones de integridad.</p></div></div>
-        <input hidden multiple type="file" ref={input} onChange={e => addFiles(e.target.files)}/><button className="upload-zone" onClick={() => input.current?.click()}><UploadCloud/><strong>Arrastra los archivos o haz clic para buscar</strong><span>PDF, JPG o PNG · Máximo 15 MB por archivo</span></button>
-        <div className="file-list"><h4>Archivos cargados <span>{files.length}</span></h4>{files.map((f,i) => <div className="file" key={`${f}-${i}`}><span className={f.endsWith('.pdf') ? 'pdf' : 'image'}>{f.endsWith('.pdf') ? <FileText/> : <FileImage/>}</span><div><strong>{f}</strong><small>{f.endsWith('.pdf') ? '2.4 MB' : '1.8 MB'} · Carga completada</small></div><CheckCircle2 className="file-check"/><button className="icon-btn" onClick={() => setFiles(files.filter((_,n) => n !== i))}><X/></button></div>)}</div>
+        <input hidden multiple type="file" accept="application/pdf,image/jpeg,image/png,image/tiff" ref={input} onChange={e => addFiles(e.target.files)}/><button className="upload-zone" onClick={() => input.current?.click()}><UploadCloud/><strong>Arrastra los archivos o haz clic para buscar</strong><span>PDF, JPG, PNG o TIFF · Máximo 10 MB por archivo</span></button>
+        <div className="file-list"><h4>Archivos cargados <span>{files.length}</span></h4>{files.map((f,i) => <div className="file" key={`${f.name}-${i}`}><span className={f.type==='application/pdf' ? 'pdf' : 'image'}>{f.type==='application/pdf' ? <FileText/> : <FileImage/>}</span><div><strong>{f.name}</strong><small>{(f.size/1024/1024).toFixed(1)} MB · Listo para carga segura</small></div><CheckCircle2 className="file-check"/><button className="icon-btn" onClick={() => setFiles(files.filter((_,n) => n !== i))}><X/></button></div>)}</div>
         <div className="doc-tip"><Sparkles/><div><strong>Recomendación del asistente</strong><p>Incluye declaración del conductor, licencia, identidad, informe policial y fotografías de todos los ángulos.</p></div></div></>}
       {step === 3 && <><div className="section-heading"><span><ShieldCheck/></span><div><h3>Revisa antes de analizar</h3><p>El motor evaluará 24 reglas, documentos e imágenes adjuntas.</p></div></div>
-        <div className="review-grid"><div><small>PÓLIZA</small><strong>AUT-HN-884291</strong></div><div><small>ASEGURADO</small><strong>Carlos Mendoza</strong></div><div><small>VEHÍCULO</small><strong>Toyota Hilux 2023 · HAB 4821</strong></div><div><small>FECHA</small><strong>29 ago, 2026 · 10:40 p. m.</strong></div></div>
+        <div className="review-grid"><div><small>PÓLIZA</small><strong>{form.policyNumber}</strong></div><div><small>ASEGURADO</small><strong>{form.insuredName}</strong></div><div><small>VEHÍCULO</small><strong>{form.vehicle} · {form.plate}</strong></div><div><small>FECHA</small><strong>{new Date(form.occurredAt).toLocaleString('es-HN')}</strong></div></div>
         <div className="analysis-scope"><h4>El análisis incluirá</h4><div><span><FileCheck2/>OCR y consistencia documental</span><span><FileImage/>Análisis visual de daños</span><span><ShieldAlert/>Scoring de fraude</span><span><Search/>Duplicidad y patrones</span></div></div>
         <label className="consent"><input type="checkbox" defaultChecked/><span><b>Confirmo que la información está completa</b><small>La ejecución quedará registrada en la bitácora de auditoría.</small></span></label></>}
-      <div className="form-actions"><button className="secondary" disabled={step === 1} onClick={() => setStep(step-1)}><ArrowLeft/>Anterior</button><button className="primary" onClick={next} disabled={analyzing}>{analyzing ? <><span className="spinner"/>Analizando evidencia...</> : step === 3 ? <><Sparkles/>Iniciar análisis</> : <>Continuar<ArrowRight/></>}</button></div>
+      {error && <div className="form-error" role="alert"><AlertTriangle/>{error}</div>}
+      <div className="form-actions"><button className="secondary" disabled={step === 1||analyzing} onClick={() => setStep(step-1)}><ArrowLeft/>Anterior</button><button className="primary" onClick={next} disabled={analyzing}>{analyzing ? <><span className="spinner"/>Registrando y analizando...</> : step === 3 ? <><Sparkles/>Iniciar análisis</> : <>Continuar<ArrowRight/></>}</button></div>
     </section>
   </div>
 }

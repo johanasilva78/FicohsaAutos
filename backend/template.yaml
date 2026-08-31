@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Backend serverless para registro y análisis de siniestros Ficohsa Autos
+
+Parameters:
+  AllowedOrigin:
+    Type: String
+    Default: http://localhost:5173
+    Description: Origen exacto del frontend Amplify, sin slash final
+  BedrockModelId:
+    Type: String
+    Default: amazon.nova-lite-v1:0
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 512
+    Tracing: Active
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref ClaimsTable
+        BUCKET_NAME: !Ref EvidenceBucket
+        ALLOWED_ORIGIN: !Ref AllowedOrigin
+
+Resources:
+  ClaimsApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: v1
+      CorsConfiguration:
+        AllowOrigins: [!Ref AllowedOrigin]
+        AllowHeaders: [authorization, content-type]
+        AllowMethods: [GET, POST, OPTIONS]
+        MaxAge: 600
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties: { Minify: true, Target: es2022, Sourcemap: true, EntryPoints: [src/api.ts] }
+    Properties:
+      CodeUri: .
+      Handler: src/api.handler
+      Timeout: 15
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref AnalysisQueue
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ClaimsTable }
+        - S3WritePolicy: { BucketName: !Ref EvidenceBucket }
+        - SQSSendMessagePolicy: { QueueName: !GetAtt AnalysisQueue.QueueName }
+      Events:
+        CreateClaim: { Type: HttpApi, Properties: { ApiId: !Ref ClaimsApi, Path: /claims, Method: POST } }
+        GetClaim: { Type: HttpApi, Properties: { ApiId: !Ref ClaimsApi, Path: /claims/{id}, Method: GET } }
+        AnalyzeClaim: { Type: HttpApi, Properties: { ApiId: !Ref ClaimsApi, Path: /claims/{id}/analyze, Method: POST } }
+        Health: { Type: HttpApi, Properties: { ApiId: !Ref ClaimsApi, Path: /health, Method: GET } }
+
+  AnalysisFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties: { Minify: true, Target: es2022, Sourcemap: true, EntryPoints: [src/analyzer.ts] }
+    Properties:
+      CodeUri: .
+      Handler: src/analyzer.handler
+      Timeout: 120
+      MemorySize: 1024
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ClaimsTable }
+        - S3ReadPolicy: { BucketName: !Ref EvidenceBucket }
+        - Statement:
+            - Effect: Allow
+              Action: [textract:DetectDocumentText, rekognition:DetectLabels, bedrock:InvokeModel]
+              Resource: '*'
+      Events:
+        Queue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt AnalysisQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes: [ReportBatchItemFailures]
+
+  ClaimsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
+      SSESpecification: { SSEEnabled: true }
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
+        - { AttributeName: plate, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: PlateIndex
+          KeySchema: [{ AttributeName: plate, KeyType: HASH }]
+          Projection: { ProjectionType: ALL }
+
+  EvidenceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }] }
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      VersioningConfiguration: { Status: Enabled }
+      LifecycleConfiguration: { Rules: [{ Id: ArchiveOldEvidence, Status: Enabled, Transitions: [{ StorageClass: GLACIER, TransitionInDays: 90 }] }] }
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: [!Ref AllowedOrigin]
+            AllowedMethods: [PUT]
+            AllowedHeaders: ['*']
+            MaxAge: 600
+
+  EvidenceBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref EvidenceBucket
+      PolicyDocument:
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!Sub '${EvidenceBucket.Arn}', !Sub '${EvidenceBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': false } }
+
+  AnalysisDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties: { MessageRetentionPeriod: 1209600, SqsManagedSseEnabled: true }
+  AnalysisQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180
+      SqsManagedSseEnabled: true
+      RedrivePolicy: { deadLetterTargetArn: !GetAtt AnalysisDeadLetterQueue.Arn, maxReceiveCount: 3 }
+
+Outputs:
+  ApiUrl: { Value: !Sub 'https://${ClaimsApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/v1' }
+  EvidenceBucketName: { Value: !Ref EvidenceBucket }
+  ClaimsTableName: { Value: !Ref ClaimsTable }

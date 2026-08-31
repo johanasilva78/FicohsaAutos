@@ -1,0 +1,26 @@
+{
+  "name": "ficohsa-autos-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.883.0",
+    "@aws-sdk/client-dynamodb": "^3.883.0",
+    "@aws-sdk/client-rekognition": "^3.883.0",
+    "@aws-sdk/client-s3": "^3.883.0",
+    "@aws-sdk/client-sqs": "^3.883.0",
+    "@aws-sdk/client-textract": "^3.883.0",
+    "@aws-sdk/lib-dynamodb": "^3.883.0",
+    "@aws-sdk/s3-request-presigner": "^3.883.0",
+    "@types/aws-lambda": "^8.10.152"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
