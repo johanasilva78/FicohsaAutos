@@ -144,11 +144,17 @@ function NewAnalysis({ onDone, onCancel }: { onDone: (claim: Claim) => void, onC
   const [files, setFiles] = useState<File[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState('')
-  const [form, setForm] = useState<ClaimRegistration>({ policyNumber:'AUT-HN-884291', occurredAt:'2026-08-29T22:40', insuredName:'Carlos Mendoza', identityDocument:'0801-1985-04127', vehicle:'Toyota Hilux 2023', plate:'HAB 4821', location:'Boulevard Morazán, Tegucigalpa', description:'Colisión frontal contra poste luego de perder el control del vehículo.' })
+  const [policyValidated, setPolicyValidated] = useState(false)
+  const [form, setForm] = useState<ClaimRegistration>({ policyNumber:'', occurredAt:'', insuredName:'', identityDocument:'', vehicle:'', plate:'', location:'', description:'' })
   const input = useRef<HTMLInputElement>(null)
-  const field = (name: keyof ClaimRegistration) => ({ value:form[name], onChange:(event:React.ChangeEvent<HTMLInputElement|HTMLTextAreaElement>)=>setForm({...form,[name]:event.target.value}) })
+  const field = (name: keyof ClaimRegistration) => ({ value:form[name], onChange:(event:React.ChangeEvent<HTMLInputElement|HTMLTextAreaElement>)=>{ setForm({...form,[name]:event.target.value}); setError(''); if(name==='policyNumber')setPolicyValidated(false) } })
+  const validatePolicy = () => {
+    if(form.policyNumber.trim().length<5){setError('Ingresa un número de póliza válido');return}
+    setPolicyValidated(true);setError('')
+  }
   const next = async () => {
-    if (step < 3) setStep(step + 1)
+    if(step===1&&Object.values(form).some(value=>!value.trim())){setError('Completa todos los campos obligatorios para continuar');return}
+    if (step < 3){setError('');setStep(step + 1)}
     else {
       setAnalyzing(true); setError('')
       try {
@@ -160,11 +166,11 @@ function NewAnalysis({ onDone, onCancel }: { onDone: (claim: Claim) => void, onC
   const addFiles = (list: FileList | null) => list && setFiles([...files, ...Array.from(list)].slice(0,10))
   return <div className="page form-page">
     <button className="back-link" onClick={onCancel}><ArrowLeft/>Volver a siniestros</button>
-    <div className="form-title"><div><h1>Nuevo análisis de siniestro</h1><p>Ingresa la información para ejecutar las validaciones automáticas.</p></div><span>Borrador guardado</span></div>
+    <div className="form-title"><div><h1>Nuevo análisis de siniestro</h1><p>Ingresa la información para ejecutar las validaciones automáticas.</p></div><span>Nuevo registro</span></div>
     <div className="stepper">{['Información del siniestro','Documentos y evidencias','Revisión y análisis'].map((x,i) => <div className={step >= i+1 ? 'active' : ''} key={x}><span>{step > i+1 ? <Check/> : i+1}</span><b>{x}</b>{i < 2 && <i/>}</div>)}</div>
     <section className="panel form-panel">
       {step === 1 && <><div className="section-heading"><span><Car/></span><div><h3>Datos del siniestro</h3><p>Completa los campos obligatorios para identificar el caso.</p></div></div>
-        <div className="form-grid"><label>Número de póliza *<div className="input-action"><input {...field('policyNumber')}/><button>Validar</button></div><small className="valid"><CheckCircle2/>Póliza vigente hasta 14/02/2027</small></label><label>Fecha y hora del siniestro *<input type="datetime-local" {...field('occurredAt')}/></label><label>Nombre del asegurado *<input {...field('insuredName')}/></label><label>Documento de identidad *<input {...field('identityDocument')}/></label><label>Vehículo *<input {...field('vehicle')}/></label><label>Placa *<input {...field('plate')}/></label><label className="wide">Lugar del siniestro *<input {...field('location')}/></label><label className="wide">Descripción del accidente *<textarea maxLength={2000} {...field('description')}/><small className="counter">{form.description.length} / 2000</small></label></div></>}
+        <div className="form-grid"><label>Número de póliza *<div className="input-action"><input placeholder="Ej. AUT-HN-000001" {...field('policyNumber')}/><button type="button" onClick={validatePolicy}>Validar</button></div>{policyValidated&&<small className="valid"><CheckCircle2/>Formato válido para continuar</small>}</label><label>Fecha y hora del siniestro *<input type="datetime-local" {...field('occurredAt')}/></label><label>Nombre del asegurado *<input placeholder="Nombre completo" {...field('insuredName')}/></label><label>Documento de identidad *<input placeholder="Documento del asegurado" {...field('identityDocument')}/></label><label>Vehículo *<input placeholder="Marca, modelo y año" {...field('vehicle')}/></label><label>Placa *<input placeholder="Ej. HAB 4821" {...field('plate')}/></label><label className="wide">Lugar del siniestro *<input placeholder="Ciudad y ubicación del accidente" {...field('location')}/></label><label className="wide">Descripción del accidente *<textarea placeholder="Describe cómo ocurrió el accidente" maxLength={2000} {...field('description')}/><small className="counter">{form.description.length} / 2000</small></label></div></>}
       {step === 2 && <><div className="section-heading"><span><Paperclip/></span><div><h3>Documentos y evidencias</h3><p>Adjunta los soportes. El sistema aplicará OCR y validaciones de integridad.</p></div></div>
         <input hidden multiple type="file" accept="application/pdf,image/jpeg,image/png,image/tiff" ref={input} onChange={e => addFiles(e.target.files)}/><button className="upload-zone" onClick={() => input.current?.click()}><UploadCloud/><strong>Arrastra los archivos o haz clic para buscar</strong><span>PDF, JPG, PNG o TIFF · Máximo 5 MB por archivo</span></button>
         <div className="file-list"><h4>Archivos cargados <span>{files.length}</span></h4>{files.map((f,i) => <div className="file" key={`${f.name}-${i}`}><span className={f.type==='application/pdf' ? 'pdf' : 'image'}>{f.type==='application/pdf' ? <FileText/> : <FileImage/>}</span><div><strong>{f.name}</strong><small>{(f.size/1024/1024).toFixed(1)} MB · Listo para carga segura</small></div><CheckCircle2 className="file-check"/><button className="icon-btn" onClick={() => setFiles(files.filter((_,n) => n !== i))}><X/></button></div>)}</div>
