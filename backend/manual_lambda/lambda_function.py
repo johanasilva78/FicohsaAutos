@@ -103,11 +103,18 @@ def invoke_model(data):
     return normalize_analysis(json.loads(match.group(0)))
 
 def normalize_analysis(data):
-    score=max(0,min(100,int(float(data.get('score',0))))); confidence=max(0,min(1,float(data.get('confidence',0))))
+    score=max(0,min(100,int(number(data.get('score',0),{'alto':85,'high':85,'medio':50,'medium':50,'bajo':20,'low':20})))); confidence=max(0,min(1,number(data.get('confidence',0),{'alta':.9,'high':.9,'media':.6,'medium':.6,'baja':.3,'low':.3})))
     findings=[]
     for x in data.get('findings',[])[:8]:
-        if isinstance(x,dict): findings.append({'title':str(x.get('title','Hallazgo'))[:160],'detail':str(x.get('detail',''))[:1000],'impact':max(0,min(40,int(float(x.get('impact',0))))),'evidence':str(x.get('evidence','Datos del siniestro'))[:300]})
+        if isinstance(x,dict): findings.append({'title':str(x.get('title','Hallazgo'))[:160],'detail':str(x.get('detail',''))[:1000],'impact':max(0,min(40,int(number(x.get('impact',0),{'alto':30,'high':30,'medio':18,'medium':18,'bajo':7,'low':7})))),'evidence':str(x.get('evidence','Datos del siniestro'))[:300]})
     return {'score':score,'risk':'Alto' if score>=70 else 'Medio' if score>=35 else 'Bajo','confidence':confidence,'recommendation':str(data.get('recommendation','Revisión manual'))[:500],'summary':str(data.get('summary','Análisis completado'))[:1000],'findings':findings}
+
+def number(value,labels=None):
+    if isinstance(value,(int,float,Decimal)):return float(value)
+    text=str(value).strip().lower().replace(',','.')
+    if labels and text in labels:return float(labels[text])
+    match=re.search(r'-?\d+(?:\.\d+)?',text)
+    return float(match.group(0)) if match else 0.0
 
 def validate_claim(payload):
     if not isinstance(payload,dict):raise ValueError('El cuerpo es inválido')

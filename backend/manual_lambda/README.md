@@ -14,3 +14,5 @@ ALLOWED_ORIGIN=https://main.APP_ID.amplifyapp.com
 El rol requiere CloudWatch Logs; DynamoDB `GetItem`, `PutItem`, `UpdateItem`, `Scan`; S3 `PutObject`, `GetObject`, `HeadObject`; `textract:DetectDocumentText`; `rekognition:DetectLabels`; y `bedrock:InvokeModel`.
 
 Habilita Function URL y configura CORS con el dominio de Amplify. `Auth type NONE` sirve solo con datos ficticios; para datos reales usa AWS IAM o un API Gateway con JWT.
+
+`ALLOWED_ORIGIN` debe contener únicamente el origen HTTPS, sin formato Markdown y sin `/` al final.
