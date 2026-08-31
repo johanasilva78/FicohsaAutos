@@ -12,6 +12,8 @@ async function json<T>(url:string,init?:RequestInit):Promise<T>{const response=a
 const wait=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms))
 
 export async function registerAndAnalyze(input:ClaimRegistration,files:File[]):Promise<ApiClaim>{
+  const oversized=files.find(file=>file.size>5*1024*1024)
+  if(oversized)throw new Error(`${oversized.name} excede el máximo de 5 MB`)
   if(!API_URL){if(!DEMO_MODE)throw new Error('Falta configurar VITE_API_URL');await wait(1300);return {...input,id:`SIN-${new Date().getFullYear()}-DEMO`,status:'COMPLETED',createdAt:new Date().toISOString(),analysis:{score:89,risk:'Alto',recommendation:'Escalar a investigación',summary:'Resultado demostrativo'}}}
   const created=await json<{claimId:string;uploadUrls:{url:string;name:string}[]}>(`${API_URL}/claims`,{method:'POST',headers:headers(),body:JSON.stringify({...input,evidence:files.map(file=>({name:file.name,contentType:file.type,size:file.size}))})})
   await Promise.all(created.uploadUrls.map(async upload=>{const file=files.find(x=>x.name===upload.name);if(!file)throw new Error(`No se encontró ${upload.name}`);const result=await fetch(upload.url,{method:'PUT',headers:{'content-type':file.type},body:file});if(!result.ok)throw new Error(`No se pudo cargar ${file.name}`)}))

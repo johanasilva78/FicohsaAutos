@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ClaimsTable",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Scan"],
+      "Resource": "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/ficohsa-autos-claims"
+    },
+    {
+      "Sid": "ClaimEvidence",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::NOMBRE_DEL_BUCKET/claims/*"
+    },
+    {
+      "Sid": "ArtificialIntelligence",
+      "Effect": "Allow",
+      "Action": ["textract:DetectDocumentText", "rekognition:DetectLabels", "bedrock:InvokeModel"],
+      "Resource": "*"
+    }
+  ]
+}
