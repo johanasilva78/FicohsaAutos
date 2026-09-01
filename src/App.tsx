@@ -35,8 +35,8 @@ type Claim = {
 
 function Logo({ compact = false }: { compact?: boolean }) {
   return <div className="brand" aria-label="Ficohsa Seguros">
-    <div className="brand-mark"><span /><span /><span /><span /></div>
-    {!compact && <div><strong>Ficohsa</strong><small>SEGUROS</small></div>}
+    <div className="brand-mark"><span /><span /><span /></div>
+    {!compact && <div><strong>Ficohsa</strong><small>Seguros</small></div>}
   </div>
 }
 

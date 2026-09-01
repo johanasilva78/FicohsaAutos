@@ -1,0 +1,258 @@
+/* Ficohsa digital identity, adapted from the customer-facing insurance flow. */
+:root {
+  color: #101f3d;
+  background: #f8faff;
+  --blue: #0867e8;
+  --blue-dark: #0053c9;
+  --border: #e1e7f0;
+  --muted: #67748a;
+  --shadow: 0 2px 5px rgba(19, 42, 78, 0.04), 0 14px 34px rgba(27, 57, 101, 0.07);
+}
+
+.app-shell {
+  background: radial-gradient(circle at 61% 3%, rgba(8, 103, 232, 0.055), transparent 31%), #f8faff;
+}
+
+.sidebar { background: rgba(255, 255, 255, 0.97); }
+
+.brand {
+  gap: 7px;
+  color: var(--blue);
+  white-space: nowrap;
+}
+
+.brand > div:last-child {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.brand strong { font-size: 23px; letter-spacing: -1.25px; }
+.brand small { font-size: 13px; letter-spacing: -0.35px; padding: 0; margin: 0; text-transform: none; }
+
+.brand-mark {
+  width: 24px;
+  height: 27px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  transform: rotate(-12deg);
+}
+
+.brand-mark span {
+  display: block;
+  height: 6px;
+  background: var(--blue);
+  border-radius: 9px 2px 9px 2px;
+}
+
+.brand-mark span:nth-child(1) { width: 23px; }
+.brand-mark span:nth-child(2) { width: 18px; margin-left: 4px; background: var(--blue); }
+.brand-mark span:nth-child(3) { width: 12px; margin-left: 8px; background: var(--blue); }
+
+.product-name,
+.sidebar nav button.active { background: #edf5ff; color: var(--blue); }
+.sidebar nav button.active::before { background: var(--blue); }
+
+.topbar {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+}
+
+.page { padding: 36px 40px 56px; }
+.welcome-row,
+.form-title,
+.detail-title { margin-bottom: 28px; }
+
+.welcome-row h1,
+.form-title h1,
+.detail-title h1 {
+  color: #10203d;
+  font-size: 27px;
+  line-height: 1.2;
+  letter-spacing: -0.75px;
+}
+
+.primary {
+  background: linear-gradient(135deg, #0872f5, #075fd8);
+  box-shadow: 0 6px 14px rgba(8, 103, 232, 0.22);
+}
+
+.panel,
+.metric-card { background: rgba(255, 255, 255, 0.97); border-radius: 14px; }
+.metric-icon.blue { color: var(--blue); background: #eaf3ff; }
+.stepper { margin-top: 32px; margin-bottom: 32px; }
+.stepper b { background: #f8faff; }
+.form-panel { padding: 31px 34px; }
+.section-heading > span { background: #eaf3ff; }
+.form-grid input:focus,
+.form-grid textarea:focus { outline-color: #dceaff; }
+.upload-zone { background: #f8fbff; border-color: #adc8ea; }
+
+.login-page {
+  background: radial-gradient(circle at 17% 38%, rgba(8, 103, 232, 0.08), transparent 27%), #f8faff;
+}
+
+.login-brand-panel { background: linear-gradient(145deg, #f7fbff 0%, #eaf3ff 58%, #f9fbff 100%); }
+.login-brand-panel::before,
+.login-brand-panel::after { border-color: rgba(8, 103, 232, 0.045); }
+.login-form-panel { background: rgba(255, 255, 255, 0.78); }
+.login-card {
+  max-width: 410px;
+  padding: 34px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(25, 58, 107, 0.1);
+}
+.login-icon { background: #eaf3ff; }
+.login-brand-content > .brand strong { font-size: 34px; }
+.login-brand-content > .brand small { font-size: 19px; letter-spacing: -0.5px; }
+.login-brand-content > .brand .brand-mark { width: 33px; height: 38px; }
+.login-brand-content > .brand .brand-mark span:nth-child(1) { width: 32px; }
+.login-brand-content > .brand .brand-mark span:nth-child(2) { width: 25px; }
+.login-brand-content > .brand .brand-mark span:nth-child(3) { width: 17px; }
+
+@media (max-width: 760px) {
+  .page { padding: 24px 18px 42px; }
+  .brand strong { font-size: 22px; }
+  .brand small { font-size: 12px; }
+  .form-panel { padding: 20px; }
+}
+
+@media (max-width: 850px) {
+  .login-card { padding: 28px; }
+}
+
+/* Desktop shell: white Ficohsa masthead plus a light horizontal product nav. */
+@media (min-width: 761px) {
+  .app-shell { display: block; padding-top: 128px; }
+  .app-shell > main { min-width: 0; }
+
+  .sidebar {
+    inset: 0 0 auto;
+    width: 100%;
+    height: 128px;
+    padding: 0 40px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 2px 12px rgba(27, 57, 101, 0.04);
+  }
+
+  .sidebar-logo {
+    width: max-content;
+    height: 76px;
+    padding: 0;
+    border: 0;
+  }
+
+  .sidebar-logo .brand strong { font-size: 28px; }
+  .sidebar-logo .brand small { font-size: 15px; }
+  .sidebar-logo .brand-mark { width: 28px; height: 31px; }
+  .sidebar-logo .brand-mark span:nth-child(1) { width: 27px; }
+  .sidebar-logo .brand-mark span:nth-child(2) { width: 21px; }
+  .sidebar-logo .brand-mark span:nth-child(3) { width: 14px; }
+  .product-name { display: none; }
+
+  .sidebar nav {
+    position: absolute;
+    inset: 76px 0 auto;
+    height: 52px;
+    padding: 0 40px;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 6px;
+    background: #fbfcff;
+    border-top: 1px solid #edf1f6;
+  }
+
+  .sidebar nav button {
+    width: auto;
+    padding: 0 17px;
+    border-radius: 0;
+    font-size: 12px;
+  }
+
+  .sidebar nav button:hover { background: #f1f6ff; }
+  .sidebar nav button.active { background: transparent; }
+  .sidebar nav button.active::before {
+    inset: auto 15px 0;
+    width: auto;
+    height: 3px;
+    border-radius: 4px 4px 0 0;
+  }
+
+  .sidebar nav .nav-label,
+  .sidebar nav button:disabled { display: none; }
+  .sidebar nav button b { margin-left: 2px; }
+
+  .sidebar-bottom {
+    position: absolute;
+    top: 0;
+    right: 40px;
+    height: 76px;
+    display: flex;
+    align-items: center;
+    padding: 0;
+  }
+
+  .sidebar-bottom > button { display: none; }
+  .user-card { margin: 0; padding: 0; border: 0; min-width: 190px; }
+  .topbar { top: 128px; height: 58px; padding: 0 40px; }
+  .top-title span { display: none; }
+  .top-title h2 { margin: 0; font-size: 13px; color: #526176; }
+}
+
+/* Login follows the same masthead-and-card composition as the supplied reference. */
+.login-page {
+  position: relative;
+  display: block;
+  padding-top: 92px;
+  background: radial-gradient(circle at 50% 18%, rgba(8, 103, 232, 0.07), transparent 32%), #f8faff;
+}
+
+.login-brand-panel {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 92px;
+  padding: 0 68px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--border);
+}
+
+.login-brand-panel::before,
+.login-brand-panel::after,
+.login-brand-panel .login-product,
+.login-brand-panel h1,
+.login-brand-panel p,
+.login-brand-panel .login-security { display: none; }
+.login-brand-content { max-width: none; }
+.login-brand-content > .brand { margin: 0; }
+
+.login-form-panel {
+  min-height: calc(100vh - 92px);
+  padding: 64px 24px;
+  background: transparent;
+}
+
+.login-card {
+  max-width: 520px;
+  padding: 42px 48px;
+  border-radius: 15px;
+  box-shadow: 0 14px 40px rgba(25, 58, 107, 0.11);
+}
+
+.login-icon { margin: 0 auto 20px; }
+.login-card > div:nth-child(2) { text-align: center; }
+.login-card h2 { color: #10203d; }
+
+@media (max-width: 850px) {
+  .login-brand-panel { display: flex; height: 78px; padding: 0 24px; }
+  .login-page { padding-top: 78px; }
+  .login-form-panel { min-height: calc(100vh - 78px); padding: 34px 18px; }
+  .login-card { padding: 30px 24px; }
+}
