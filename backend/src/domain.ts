@@ -45,19 +45,42 @@ export function safeFileName(name: string) {
   return base.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/_+/g, '_').replace(/^\.+/, '').slice(0, 160) || 'archivo'
 }
 
-export function normalizeAnalysis(value: unknown) {
+export type AnalysisContext = {
+  evidenceCount?: number
+  description?: string
+  occurredAt?: string
+  history?: { sameIdentity?:number; samePlate?:number; samePolicy?:number; recentClaims?:number }
+}
+
+const BENIGN_FINDING = /\b(consistente|coincide|compatible|sin (?:señales|inconsistencias|duplicados)|no se (?:encontraron|detectaron)|no hay (?:señales|duplicados))\b/i
+
+export function normalizeAnalysis(value: unknown, context: AnalysisContext = {}) {
   const data = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
-  const score = Math.max(0, Math.min(100, Number(data.score) || 0))
   const findings = Array.isArray(data.findings) ? data.findings.slice(0, 8).map((x) => {
     const f = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
-    return { title: String(f.title || 'Hallazgo'), detail: String(f.detail || ''), impact: Math.max(0, Math.min(40, Number(f.impact) || 0)), evidence: String(f.evidence || 'Datos del siniestro') }
+    const title=String(f.title || 'Hallazgo'); const detail=String(f.detail || '')
+    const requestedImpact=Math.max(0,Math.min(35,Number(f.impact)||0))
+    return { title, detail, impact:BENIGN_FINDING.test(`${title} ${detail}`)?0:requestedImpact, evidence:String(f.evidence||'Datos del siniestro') }
   }) : []
+  const ruleFindings:{title:string;detail:string;impact:number;evidence:string}[]=[]
+  if(context.evidenceCount===0)ruleFindings.push({title:'Evidencia pendiente',detail:'El expediente no contiene documentos ni fotografías para contrastar la declaración.',impact:20,evidence:'Expediente'})
+  const description=(context.description||'').trim()
+  if(description&&description.length<30)ruleFindings.push({title:'Descripción insuficiente',detail:'La descripción es demasiado breve para reconstruir las circunstancias del siniestro.',impact:10,evidence:'Descripción del siniestro'})
+  else if(description&&description.length<80)ruleFindings.push({title:'Descripción limitada',detail:'La descripción contiene pocos detalles verificables sobre la ocurrencia.',impact:5,evidence:'Descripción del siniestro'})
+  const history=context.history||{}
+  const sameIdentity=Math.max(0,history.sameIdentity||0),samePlate=Math.max(0,history.samePlate||0),samePolicy=Math.max(0,history.samePolicy||0),recentClaims=Math.max(0,history.recentClaims||0)
+  const historyImpact=Math.min(50,Math.min(30,sameIdentity*15)+Math.min(40,samePlate*20)+Math.min(20,samePolicy*10)+Math.min(20,recentClaims*10))
+  if(historyImpact)ruleFindings.push({title:'Historial relacionado',detail:`Coincidencias previas: identidad ${sameIdentity}, placa ${samePlate}, póliza ${samePolicy}; ${recentClaims} dentro de los últimos 30 días.`,impact:historyImpact,evidence:'Historial de siniestros'})
+  if(context.occurredAt&&new Date(context.occurredAt).getTime()>Date.now()+5*60_000)ruleFindings.push({title:'Fecha futura',detail:'La fecha declarada del siniestro es posterior al momento del análisis.',impact:25,evidence:'Fecha del siniestro'})
+  const modelImpact=Math.min(50,findings.reduce((sum,f)=>sum+f.impact,0))
+  const score=Math.max(0,Math.min(100,modelImpact+ruleFindings.reduce((sum,f)=>sum+f.impact,0)))
+  const allFindings=[...ruleFindings,...findings].slice(0,8)
   return {
     score,
     risk: score >= 70 ? 'Alto' : score >= 35 ? 'Medio' : 'Bajo',
     confidence: Math.max(0, Math.min(1, Number(data.confidence) || 0)),
-    recommendation: String(data.recommendation || (score >= 70 ? 'Escalar a investigación' : score >= 35 ? 'Revisión manual' : 'Continuar proceso')),
+    recommendation: score >= 70 ? 'Escalar a investigación' : score >= 35 ? 'Revisión manual prioritaria' : 'Continuar con validaciones habituales',
     summary: String(data.summary || 'Análisis completado'),
-    findings,
+    findings:allFindings,
   }
 }

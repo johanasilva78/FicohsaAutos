@@ -3,7 +3,6 @@ import base64, json, logging, os, re, unicodedata, uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 import boto3
-from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 
 LOG=logging.getLogger(); LOG.setLevel(logging.INFO)
@@ -96,9 +95,10 @@ def analyze_claim(claim_id):
     if item.get('status')=='COMPLETED': return response(200,{'claimId':claim_id,'status':'COMPLETED'})
     set_status(claim_id,'ANALYZING')
     try:
-        ocr,visual=inspect_evidence(item.get('evidence',[]))
-        model_input={'claim':{key:item.get(key) for key in ('policyNumber','occurredAt','vehicle','plate','location','description')},'ocr':ocr,'visualLabels':visual,'possibleDuplicates':find_duplicates(claim_id,item.get('plate',''))}
-        analysis=invoke_model(model_input); now=utc_now()
+        evidence=item.get('evidence',[]); ocr,visual=inspect_evidence(evidence); history=related_history(claim_id,item)
+        model_input={'claim':{key:item.get(key) for key in ('policyNumber','occurredAt','vehicle','plate','location','description')},'ocr':ocr,'visualLabels':visual,'relatedHistory':history['matches']}
+        context={'evidenceCount':len(evidence),'description':item.get('description',''),'occurredAt':item.get('occurredAt'),'history':history['counts']}
+        analysis=invoke_model(model_input,context); now=utc_now()
         table().update_item(Key={'id':claim_id},UpdateExpression='SET #s=:s, analysis=:a, analysisEngine=:e, analyzedAt=:n, updatedAt=:n',ExpressionAttributeNames={'#s':'status'},ExpressionAttributeValues={':s':'COMPLETED',':a':to_ddb(analysis),':e':MODEL_ID,':n':now})
         return response(202,{'claimId':claim_id,'status':'COMPLETED'})
     except Exception as error:
@@ -123,24 +123,49 @@ def inspect_evidence(evidence):
             except ClientError as error: visual.append({'file':name,'warning':error.response.get('Error',{}).get('Code','VISION_ERROR')})
     return ocr,visual
 
-def find_duplicates(claim_id,plate):
-    if not plate:return []
-    result=table().scan(FilterExpression=Attr('plate').eq(plate),ProjectionExpression='id, occurredAt, #s, analysis',ExpressionAttributeNames={'#s':'status'},Limit=50)
-    return [{'id':x.get('id'),'occurredAt':x.get('occurredAt'),'status':x.get('status'),'score':x.get('analysis',{}).get('score')} for x in result.get('Items',[]) if x.get('id')!=claim_id][:5]
+def related_history(claim_id,current):
+    page=table().scan(ProjectionExpression='id, identityDocument, plate, policyNumber, occurredAt, #s, analysis',ExpressionAttributeNames={'#s':'status'},Limit=100)
+    related=[]
+    for item in page.get('Items',[]):
+        if item.get('id')==claim_id:continue
+        flags={'identity':bool(current.get('identityDocument')) and item.get('identityDocument')==current.get('identityDocument'),'plate':bool(current.get('plate')) and item.get('plate')==current.get('plate'),'policy':bool(current.get('policyNumber')) and item.get('policyNumber')==current.get('policyNumber')}
+        if any(flags.values()):related.append((item,flags))
+    counts={'sameIdentity':sum(flags['identity'] for _,flags in related),'samePlate':sum(flags['plate'] for _,flags in related),'samePolicy':sum(flags['policy'] for _,flags in related),'recentClaims':sum(is_recent(item.get('occurredAt'),current.get('occurredAt')) for item,_ in related)}
+    matches=[{'id':item.get('id'),'occurredAt':item.get('occurredAt'),'status':item.get('status'),'score':item.get('analysis',{}).get('score'),'matches':flags} for item,flags in related[:10]]
+    return {'counts':counts,'matches':matches}
 
-def invoke_model(data):
-    system='Eres un asistente antifraude para seguros de autos. No determines culpabilidad, no confirmes fraude y no apruebes ni rechaces reclamos. Evalúa señales explicables y recomienda revisión humana. Responde solo JSON válido con score 0-100, confidence 0-1, recommendation, summary y findings: [{title,detail,impact,evidence}].'
+def is_recent(previous,current):
+    try:return abs((datetime.fromisoformat(str(current).replace('Z','+00:00'))-datetime.fromisoformat(str(previous).replace('Z','+00:00'))).total_seconds())<=30*86400
+    except (TypeError,ValueError):return False
+
+def invoke_model(data,context):
+    system='Eres un asistente antifraude para seguros de autos. No determines culpabilidad, no confirmes fraude y no apruebes ni rechaces reclamos. Identifica únicamente anomalías sustentadas en evidencia. Usa impact 0 si la información es consistente o no hay anomalía; 5-15 para señal débil; 16-25 para inconsistencia material; 26-35 solo para duplicidad o manipulación fuertemente sustentada. No calcules el score global: el sistema lo hará con reglas auditables. Responde solo JSON válido con confidence 0-1, recommendation, summary y findings: [{title,detail,impact,evidence}].'
     result=bedrock.converse(modelId=MODEL_ID,system=[{'text':system}],messages=[{'role':'user','content':[{'text':'Analiza sin inventar hechos:\n'+json.dumps(json_safe(data),ensure_ascii=False)}]}],inferenceConfig={'maxTokens':1800,'temperature':0})
     text=result['output']['message']['content'][0]['text']; match=re.search(r'\{.*\}',text,re.DOTALL)
     if not match: raise ValueError('Bedrock no devolvió JSON válido')
-    return normalize_analysis(json.loads(match.group(0)))
+    return normalize_analysis(json.loads(match.group(0)),context)
 
-def normalize_analysis(data):
-    score=max(0,min(100,int(number(data.get('score',0),{'alto':85,'high':85,'medio':50,'medium':50,'bajo':20,'low':20})))); confidence=max(0,min(1,number(data.get('confidence',0),{'alta':.9,'high':.9,'media':.6,'medium':.6,'baja':.3,'low':.3})))
+def normalize_analysis(data,context=None):
+    context=context or {}; confidence=max(0,min(1,number(data.get('confidence',0),{'alta':.9,'high':.9,'media':.6,'medium':.6,'baja':.3,'low':.3})))
+    benign=re.compile(r'\b(consistente|coincide|compatible|sin (?:señales|inconsistencias|duplicados)|no se (?:encontraron|detectaron)|no hay (?:señales|duplicados))\b',re.IGNORECASE)
     findings=[]
     for x in data.get('findings',[])[:8]:
-        if isinstance(x,dict): findings.append({'title':str(x.get('title','Hallazgo'))[:160],'detail':str(x.get('detail',''))[:1000],'impact':max(0,min(40,int(number(x.get('impact',0),{'alto':30,'high':30,'medio':18,'medium':18,'bajo':7,'low':7})))),'evidence':str(x.get('evidence','Datos del siniestro'))[:300]})
-    return {'score':score,'risk':'Alto' if score>=70 else 'Medio' if score>=35 else 'Bajo','confidence':confidence,'recommendation':str(data.get('recommendation','Revisión manual'))[:500],'summary':str(data.get('summary','Análisis completado'))[:1000],'findings':findings}
+        if isinstance(x,dict):
+            title=str(x.get('title','Hallazgo'))[:160]; detail=str(x.get('detail',''))[:1000]; impact=max(0,min(35,int(number(x.get('impact',0),{'alto':30,'high':30,'medio':18,'medium':18,'bajo':7,'low':7}))))
+            findings.append({'title':title,'detail':detail,'impact':0 if benign.search(f'{title} {detail}') else impact,'evidence':str(x.get('evidence','Datos del siniestro'))[:300]})
+    rules=[]; evidence_count=int(context.get('evidenceCount',0)); description=str(context.get('description','')).strip()
+    if evidence_count==0:rules.append({'title':'Evidencia pendiente','detail':'El expediente no contiene documentos ni fotografías para contrastar la declaración.','impact':20,'evidence':'Expediente'})
+    if description and len(description)<30:rules.append({'title':'Descripción insuficiente','detail':'La descripción es demasiado breve para reconstruir las circunstancias del siniestro.','impact':10,'evidence':'Descripción del siniestro'})
+    elif description and len(description)<80:rules.append({'title':'Descripción limitada','detail':'La descripción contiene pocos detalles verificables sobre la ocurrencia.','impact':5,'evidence':'Descripción del siniestro'})
+    history=context.get('history') or {}; same_identity=max(0,int(history.get('sameIdentity',0))); same_plate=max(0,int(history.get('samePlate',0))); same_policy=max(0,int(history.get('samePolicy',0))); recent=max(0,int(history.get('recentClaims',0)))
+    history_impact=min(50,min(30,same_identity*15)+min(40,same_plate*20)+min(20,same_policy*10)+min(20,recent*10))
+    if history_impact:rules.append({'title':'Historial relacionado','detail':f'Coincidencias previas: identidad {same_identity}, placa {same_plate}, póliza {same_policy}; {recent} dentro de los últimos 30 días.','impact':history_impact,'evidence':'Historial de siniestros'})
+    try:
+        occurred=datetime.fromisoformat(str(context.get('occurredAt')).replace('Z','+00:00')); now=datetime.now(occurred.tzinfo) if occurred.tzinfo else datetime.now()
+        if (occurred-now).total_seconds()>300:rules.append({'title':'Fecha futura','detail':'La fecha declarada del siniestro es posterior al momento del análisis.','impact':25,'evidence':'Fecha del siniestro'})
+    except (TypeError,ValueError):pass
+    score=max(0,min(100,min(50,sum(x['impact'] for x in findings))+sum(x['impact'] for x in rules))); recommendation='Escalar a investigación' if score>=70 else 'Revisión manual prioritaria' if score>=35 else 'Continuar con validaciones habituales'
+    return {'score':score,'risk':'Alto' if score>=70 else 'Medio' if score>=35 else 'Bajo','confidence':confidence,'recommendation':recommendation,'summary':str(data.get('summary','Análisis completado'))[:1000],'findings':(rules+findings)[:8]}
 
 def number(value,labels=None):
     if isinstance(value,(int,float,Decimal)):return float(value)
