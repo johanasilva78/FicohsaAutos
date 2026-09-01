@@ -3,7 +3,7 @@ import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, BarChart3, Bell, CalendarDays,
   Car, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3,
   Download, FileCheck2, FileImage, FileText, Filter, Gauge, LayoutDashboard,
-  ListFilter, Menu, MoreHorizontal, Paperclip, Plus, Search,
+  ListFilter, LockKeyhole, LogIn, LogOut, Menu, Paperclip, Plus, Search,
   Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, UploadCloud,
   UsersRound, X,
 } from 'lucide-react'
@@ -44,7 +44,24 @@ function RiskPill({ risk, score }: { risk: Risk, score?: number }) {
   return <span className={`risk risk-${risk.toLowerCase()}`}><i /> {risk}{score !== undefined && ` · ${score}`}</span>
 }
 
-function Sidebar({ view, setView, open, close, claimCount }: { view: View, setView: (v: View) => void, open: boolean, close: () => void, claimCount:number }) {
+function Login({ onLogin }: { onLogin: () => void }) {
+  const [email,setEmail]=useState('')
+  const [password,setPassword]=useState('')
+  const [error,setError]=useState('')
+  const submit=(event:React.FormEvent)=>{
+    event.preventDefault()
+    if(!/^\S+@\S+\.\S+$/.test(email)){setError('Ingresa un correo electrónico válido');return}
+    if(password.length<4){setError('La contraseña debe tener al menos 4 caracteres');return}
+    onLogin()
+  }
+  return <main className="login-page">
+    <section className="login-brand-panel"><div className="login-brand-content"><Logo/><div className="login-product"><ShieldCheck/><span>Gestión inteligente de siniestros</span></div><h1>Decisiones más claras.<br/>Análisis más confiables.</h1><p>Centraliza expedientes, analiza evidencias y detecta señales de riesgo desde un solo lugar.</p><div className="login-security"><LockKeyhole/><span><strong>Entorno protegido</strong><small>Acceso exclusivo para usuarios autorizados.</small></span></div></div></section>
+    <section className="login-form-panel"><form className="login-card" onSubmit={submit}><span className="login-icon"><LockKeyhole/></span><div><h2>Bienvenido</h2><p>Ingresa tus credenciales para continuar.</p></div><label>Correo electrónico<input type="email" autoComplete="username" value={email} onChange={event=>{setEmail(event.target.value);setError('')}} placeholder="nombre@ficohsa.com" autoFocus/></label><label>Contraseña<input type="password" autoComplete="current-password" value={password} onChange={event=>{setPassword(event.target.value);setError('')}} placeholder="••••••••"/></label>{error&&<div className="login-error" role="alert"><AlertTriangle/>{error}</div>}<button className="primary login-submit" type="submit">Iniciar sesión<LogIn/></button><div className="mock-notice"><strong>Acceso demostrativo</strong><span>Usa cualquier correo válido y una contraseña de 4 caracteres o más.</span></div><small className="login-legal">Esta pantalla es una simulación y no reemplaza autenticación corporativa.</small></form>
+    </section>
+  </main>
+}
+
+function Sidebar({ view, setView, open, close, claimCount, onLogout }: { view: View, setView: (v: View) => void, open: boolean, close: () => void, claimCount:number, onLogout:()=>void }) {
   const go = (v: View) => { setView(v); close() }
   return <>
     <div className={`mobile-scrim ${open ? 'show' : ''}`} onClick={close} />
@@ -64,7 +81,7 @@ function Sidebar({ view, setView, open, close, claimCount }: { view: View, setVi
       <div className="sidebar-bottom">
         <button disabled title="Módulo aún no conectado"><CircleHelp/>Centro de ayuda</button>
         <button disabled title="Módulo aún no conectado"><Settings/>Configuración</button>
-        <div className="user-card"><div className="avatar">LM</div><div><strong>Laura Mejía</strong><small>Analista Sr.</small></div><MoreHorizontal size={18}/></div>
+        <div className="user-card"><div className="avatar">LM</div><div><strong>Laura Mejía</strong><small>Analista Sr.</small></div><button className="icon-btn" onClick={onLogout} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut/></button></div>
       </div>
     </aside>
   </>
@@ -247,6 +264,7 @@ function Reports({items}:{items:Claim[]}) {
 function toClaim(saved:ApiClaim):Claim{return {id:saved.id,insured:saved.insuredName,vehicle:saved.vehicle,plate:saved.plate,date:new Date(saved.createdAt).toLocaleDateString('es-HN',{day:'2-digit',month:'short',year:'numeric'}),risk:saved.analysis?.risk||'Medio',score:saved.analysis?.score||0,status:saved.status==='COMPLETED'?'Analizado':saved.status==='FAILED'?'Fallido':'En análisis',reason:saved.analysis?.summary||'Análisis solicitado',policyNumber:saved.policyNumber,occurredAt:saved.occurredAt,location:saved.location,description:saved.description,recommendation:saved.analysis?.recommendation||'Pendiente de análisis',confidence:saved.analysis?.confidence||0,findings:saved.analysis?.findings||[],evidence:saved.evidence||[],createdAt:saved.createdAt}}
 
 export default function App() {
+  const [authenticated,setAuthenticated]=useState(()=>sessionStorage.getItem('ficohsa_mock_session')==='active')
   const [view, setView] = useState<View>('dashboard')
   const [claimItems, setClaimItems] = useState<Claim[]>([])
   const [selected, setSelected] = useState<Claim|null>(null)
@@ -254,12 +272,15 @@ export default function App() {
   const [loadError,setLoadError]=useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const load=()=>{setLoading(true);setLoadError('');listClaims().then(items=>setClaimItems(items.map(toClaim))).catch(error=>setLoadError(error instanceof Error?error.message:'No fue posible cargar los siniestros')).finally(()=>setLoading(false))}
-  useEffect(()=>{listClaims().then(items=>setClaimItems(items.map(toClaim))).catch(error=>setLoadError(error instanceof Error?error.message:'No fue posible cargar los siniestros')).finally(()=>setLoading(false))},[])
+  useEffect(()=>{if(!authenticated)return;listClaims().then(items=>setClaimItems(items.map(toClaim))).catch(error=>setLoadError(error instanceof Error?error.message:'No fue posible cargar los siniestros')).finally(()=>setLoading(false))},[authenticated])
+  const login=()=>{sessionStorage.setItem('ficohsa_mock_session','active');setAuthenticated(true)}
+  const logout=()=>{sessionStorage.removeItem('ficohsa_mock_session');setAuthenticated(false);setClaimItems([]);setSelected(null);setView('dashboard');setMenuOpen(false);setLoading(true);setLoadError('')}
   const openClaim = (c: Claim) => { setSelected(c); setView('detail'); window.scrollTo({top:0}) }
   const completeClaim = (claim:Claim) => { setClaimItems(current=>[claim,...current.filter(item=>item.id!==claim.id)]); openClaim(claim) }
   const go = (v: View) => { setView(v); window.scrollTo({top:0}) }
   const titles: Record<View,string> = { dashboard: 'Centro de análisis', cases: 'Siniestros', reports: 'Reportes', new: 'Nuevo análisis', detail: 'Detalle del siniestro' }
-  return <div className="app-shell"><Sidebar view={view} setView={go} open={menuOpen} close={() => setMenuOpen(false)} claimCount={claimItems.length}/><main><Topbar title={titles[view]} onMenu={() => setMenuOpen(true)}/>
+  if(!authenticated)return <Login onLogin={login}/>
+  return <div className="app-shell"><Sidebar view={view} setView={go} open={menuOpen} close={() => setMenuOpen(false)} claimCount={claimItems.length} onLogout={logout}/><main><Topbar title={titles[view]} onMenu={() => setMenuOpen(true)}/>
     {view === 'dashboard' && <Dashboard setView={go} openClaim={openClaim} items={claimItems} loading={loading} error={loadError} retry={load}/>} {view === 'cases' && <Cases openClaim={openClaim} setView={go} items={claimItems} loading={loading} error={loadError} retry={load}/>} {view === 'new' && <NewAnalysis onDone={completeClaim} onCancel={() => go('cases')}/>} {view === 'detail' && selected && <ClaimDetail claim={selected} back={() => go('cases')}/>} {view === 'reports' && <Reports items={claimItems}/>}
   </main></div>
 }
