@@ -185,9 +185,31 @@
     border-radius: 4px 4px 0 0;
   }
 
-  .sidebar nav .nav-label,
-  .sidebar nav button:disabled { display: none; }
+  .sidebar nav .nav-label { display: none; }
+  .sidebar nav button:disabled { display: flex; }
   .sidebar nav button b { margin-left: 2px; }
+
+  .sidebar nav .planned-module {
+    padding-right: 12px;
+    color: #7c899c;
+    opacity: 0.72;
+  }
+
+  .planned-module > span {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    white-space: nowrap;
+  }
+
+  .planned-module small {
+    color: var(--blue);
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.25px;
+    text-transform: uppercase;
+  }
 
   .sidebar-bottom {
     position: absolute;
@@ -199,7 +221,14 @@
     padding: 0;
   }
 
-  .sidebar-bottom > button { display: none; }
+  .sidebar-bottom > button {
+    display: flex;
+    width: auto;
+    padding: 8px;
+    font-size: 0;
+  }
+
+  .sidebar-bottom > button span { display: none; }
   .user-card { margin: 0; padding: 0; border: 0; min-width: 190px; }
   .topbar { top: 128px; height: 58px; padding: 0 40px; }
   .top-title span { display: none; }

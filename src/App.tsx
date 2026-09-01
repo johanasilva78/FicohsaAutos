@@ -74,13 +74,13 @@ function Sidebar({ view, setView, open, close, claimCount, onLogout }: { view: V
         <button onClick={() => go('new')}><Sparkles/>Nuevo análisis</button>
         <button className={view === 'reports' ? 'active' : ''} onClick={() => go('reports')}><BarChart3/>Reportes</button>
         <span className="nav-label">GESTIÓN</span>
-        <button disabled title="Requiere el servicio de gestión de investigadores"><UsersRound/>Investigadores</button>
-        <button disabled title="Requiere el servicio de reglas de negocio"><ListFilter/>Reglas de negocio</button>
-        <button disabled title="Requiere el servicio de auditoría"><Activity/>Registro de actividad</button>
+        <button className="planned-module" disabled title="Módulo contemplado para una siguiente fase"><UsersRound/><span>Investigadores<small>Próximamente</small></span></button>
+        <button className="planned-module" disabled title="Módulo contemplado para una siguiente fase"><ListFilter/><span>Reglas de negocio<small>Próximamente</small></span></button>
+        <button className="planned-module" disabled title="Módulo contemplado para una siguiente fase"><Activity/><span>Registro de actividad<small>Próximamente</small></span></button>
       </nav>
       <div className="sidebar-bottom">
-        <button disabled title="Módulo aún no conectado"><CircleHelp/>Centro de ayuda</button>
-        <button disabled title="Módulo aún no conectado"><Settings/>Configuración</button>
+        <button className="planned-module" disabled title="Módulo contemplado para una siguiente fase"><CircleHelp/><span>Centro de ayuda<small>Próximamente</small></span></button>
+        <button className="planned-module" disabled title="Módulo contemplado para una siguiente fase"><Settings/><span>Configuración<small>Próximamente</small></span></button>
         <div className="user-card"><div className="avatar">LM</div><div><strong>Laura Mejía</strong><small>Analista Sr.</small></div><button className="icon-btn" onClick={onLogout} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut/></button></div>
       </div>
     </aside>
