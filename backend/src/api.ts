@@ -1,7 +1,7 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda'
 import { randomUUID } from 'node:crypto'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
-import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
+import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs'
@@ -19,13 +19,14 @@ function requiredEnv(name: string) { const value = process.env[name]; if (!value
 function response(statusCode: number, body: unknown): APIGatewayProxyResultV2 {
   return { statusCode, headers: { 'content-type':'application/json', 'access-control-allow-origin':ALLOWED_ORIGIN, 'cache-control':'no-store' }, body: JSON.stringify(body) }
 }
-function publicClaim(item: Record<string, unknown>) { const { PK: _pk, SK: _sk, identityDocument, ...safe } = item; return { ...safe, identityDocumentMasked: identityDocument ? `***${String(identityDocument).slice(-4)}` : undefined } }
+function publicClaim(item: Record<string, unknown>) { const safe={...item};const identityDocument=safe.identityDocument;delete safe.PK;delete safe.SK;delete safe.identityDocument;return { ...safe, identityDocumentMasked: identityDocument ? `***${String(identityDocument).slice(-4)}` : undefined } }
 
 export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
   try {
     const method = event.requestContext.http.method
     const path = event.rawPath
     if (method === 'GET' && path === '/health') return response(200, { ok:true })
+    if (method === 'GET' && path === '/claims') return await listClaims()
     if (method === 'POST' && path === '/claims') return await createClaim(event)
     const match = path.match(/^\/claims\/([^/]+)$/)
     if (method === 'GET' && match) return await getClaim(match[1])
@@ -37,6 +38,23 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     const message = error instanceof Error ? error.message : 'Error inesperado'
     return response(message.includes('obligatorio') || message.includes('evidencia') || message.includes('archivo') ? 400 : 500, { message })
   }
+}
+
+async function listClaims() {
+  const items: Record<string, unknown>[] = []
+  let cursor: Record<string, unknown> | undefined
+  do {
+    const result = await db.send(new ScanCommand({
+      TableName:TABLE_NAME,
+      FilterExpression:'entityType = :claim',
+      ExpressionAttributeValues:{':claim':'CLAIM'},
+      ExclusiveStartKey:cursor,
+    }))
+    items.push(...(result.Items || []))
+    cursor = result.LastEvaluatedKey
+  } while (cursor)
+  items.sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+  return response(200, { items:items.map(publicClaim), count:items.length })
 }
 
 async function createClaim(event: APIGatewayProxyEventV2) {

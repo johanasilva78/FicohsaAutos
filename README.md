@@ -11,7 +11,7 @@ MVP navegable para automatizar la detección de posibles fraudes en siniestros d
 - Reportes operativos y de efectividad.
 - Diseño responsive alineado al lenguaje visual azul/rojo de Ficohsa.
 
-La interfaz conserva un modo demostrativo, pero el repositorio incluye un backend serverless desplegable con Lambda, API Gateway, S3, DynamoDB, SQS, Textract, Rekognition y Amazon Bedrock.
+La interfaz consume los siniestros del backend serverless incluido, desplegable con Lambda, API Gateway, S3, DynamoDB, SQS, Textract, Rekognition y Amazon Bedrock. Si la API no está configurada, muestra un estado de conexión explícito y no inyecta expedientes de demostración.
 
 ## Desarrollo local
 
@@ -60,10 +60,17 @@ Durante `sam deploy --guided`, establece `AllowedOrigin` con el dominio exacto d
 
 ```text
 VITE_API_URL=https://API_ID.execute-api.REGION.amazonaws.com/v1
-VITE_DEMO_MODE=false
 ```
 
 Luego redespliega el frontend. Para desarrollo local, copia `.env.example` a `.env.local` y ajusta la URL. El endpoint no debe exponerse a expedientes reales hasta agregar un autorizador JWT de Cognito o del proveedor corporativo, WAF, política de retención aprobada y pruebas de seguridad. CORS no sustituye autenticación.
+
+### Despliegue con una sola Function URL
+
+La implementación utilizada por este proyecto está en `backend/manual_lambda/lambda_function.py`. Expone listado, registro, carga de evidencias, análisis y consulta desde una única Lambda URL, sin API Gateway. Consulta `backend/manual_lambda/README.md` para sus variables, permisos y límites. Configura el frontend así:
+
+```text
+VITE_API_URL=https://FUNCTION_ID.lambda-url.REGION.on.aws
+```
 
 ## Aviso
 

@@ -1,10 +1,9 @@
 """Lambda única para registrar y analizar siniestros desde una Function URL."""
-import json, logging, os, re, unicodedata, uuid
+import base64, json, logging, os, re, unicodedata, uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 import boto3
 from boto3.dynamodb.conditions import Attr
-from botocore.config import Config
 from botocore.exceptions import ClientError
 
 LOG=logging.getLogger(); LOG.setLevel(logging.INFO)
@@ -14,9 +13,9 @@ BUCKET_NAME=os.environ.get('EVIDENCE_BUCKET','')
 MODEL_ID=os.environ.get('BEDROCK_MODEL_ID','amazon.nova-lite-v1:0')
 ORIGIN=os.environ.get('ALLOWED_ORIGIN','http://localhost:5173')
 ALLOWED={'application/pdf','image/jpeg','image/png','image/tiff'}
-MAX_SIZE=5*1024*1024; MAX_FILES=10
+MAX_SIZE=4*1024*1024; MAX_FILES=10
 ddb=boto3.resource('dynamodb',region_name=REGION)
-s3=boto3.client('s3',region_name=REGION,config=Config(signature_version='s3v4',s3={'addressing_style':'virtual'}))
+s3=boto3.client('s3',region_name=REGION)
 textract=boto3.client('textract',region_name=REGION)
 rekognition=boto3.client('rekognition',region_name=REGION)
 bedrock=boto3.client('bedrock-runtime',region_name=REGION)
@@ -29,7 +28,10 @@ def lambda_handler(event,context):
         path=event.get('rawPath') or event.get('path') or '/'
         if method=='OPTIONS': return response(204,None)
         if method=='GET' and path in ('/','/health'): return response(200,{'ok':True,'service':'ficohsa-claims'})
+        if method=='GET' and path=='/claims': return list_claims()
         if method=='POST' and path=='/claims': return create_claim(body(event))
+        upload=re.fullmatch(r'/claims/([^/]+)/evidence/(\d+)',path)
+        if method=='PUT' and upload: return upload_evidence(upload.group(1),int(upload.group(2)),event)
         match=re.fullmatch(r'/claims/([^/]+)/analyze',path)
         if method=='POST' and match: return analyze_claim(match.group(1))
         match=re.fullmatch(r'/claims/([^/]+)',path)
@@ -46,16 +48,47 @@ def create_claim(payload):
     evidence=[]; upload_urls=[]
     for index,file in enumerate(claim.pop('evidence')):
         key=f"claims/{claim_id}/{index}-{safe_name(file['name'])}"; evidence.append({**file,'key':key,'status':'PENDING_UPLOAD'})
-        params={'Bucket':BUCKET_NAME,'Key':key,'ContentType':file['contentType'],'Metadata':{'claim-id':claim_id}}
-        upload_urls.append({'key':key,'name':file['name'],'url':s3.generate_presigned_url('put_object',Params=params,ExpiresIn=600,HttpMethod='PUT')})
+        upload_urls.append({'key':key,'name':file['name'],'path':f'/claims/{claim_id}/evidence/{index}'})
     table().put_item(Item={'id':claim_id,**claim,'evidence':evidence,'status':'DRAFT','createdAt':now,'updatedAt':now,'version':1},ConditionExpression='attribute_not_exists(id)')
     return response(201,{'claimId':claim_id,'status':'DRAFT','uploadUrls':upload_urls})
+
+def upload_evidence(claim_id,index,event):
+    item=table().get_item(Key={'id':claim_id},ConsistentRead=True).get('Item')
+    if not item:return response(404,{'message':'Siniestro no encontrado'})
+    evidence=item.get('evidence',[])
+    if index<0 or index>=len(evidence):return response(404,{'message':'Evidencia no encontrada'})
+    file=evidence[index]; headers={str(key).lower():value for key,value in event.get('headers',{}).items()}
+    content_type=str(headers.get('content-type','')).split(';',1)[0].strip().lower()
+    if content_type!=file.get('contentType'):raise ValueError('El tipo de la evidencia no coincide con el registro')
+    encoded=event.get('body') or ''
+    try:data=base64.b64decode(encoded,validate=True) if event.get('isBase64Encoded') else encoded.encode('utf-8')
+    except (ValueError,UnicodeError) as error:raise ValueError('El contenido de la evidencia es inválido') from error
+    if not data or len(data)>MAX_SIZE:raise ValueError('La evidencia debe pesar entre 1 byte y 4 MB')
+    if file.get('size')!=len(data):raise ValueError('El tamaño de la evidencia no coincide con el registro')
+    s3.put_object(Bucket=BUCKET_NAME,Key=file['key'],Body=data,ContentType=content_type,Metadata={'claim-id':claim_id})
+    table().update_item(Key={'id':claim_id},UpdateExpression=f'SET evidence[{index}].#s=:uploaded, updatedAt=:now',ExpressionAttributeNames={'#s':'status'},ExpressionAttributeValues={':uploaded':'UPLOADED',':now':utc_now()})
+    return response(200,{'claimId':claim_id,'index':index,'status':'UPLOADED'})
 
 def get_claim(claim_id):
     item=table().get_item(Key={'id':claim_id},ConsistentRead=True).get('Item')
     if not item: return response(404,{'message':'Siniestro no encontrado'})
     result=json_safe(item); identity=result.pop('identityDocument',''); result['identityDocumentMasked']=f"***{identity[-4:]}" if identity else None
     return response(200,result)
+
+def list_claims():
+    items=[]; cursor=None
+    while True:
+        args={'Limit':100}
+        if cursor: args['ExclusiveStartKey']=cursor
+        page=table().scan(**args); items.extend(page.get('Items',[])); cursor=page.get('LastEvaluatedKey')
+        if not cursor: break
+    items.sort(key=lambda item:item.get('createdAt',''),reverse=True)
+    safe=[]
+    for item in items:
+        value=json_safe(item); identity=value.pop('identityDocument','')
+        value['identityDocumentMasked']=f"***{identity[-4:]}" if identity else None
+        safe.append(value)
+    return response(200,{'items':safe,'count':len(safe)})
 
 def analyze_claim(claim_id):
     item=table().get_item(Key={'id':claim_id},ConsistentRead=True).get('Item')
@@ -131,7 +164,7 @@ def validate_claim(payload):
     for file in files:
         name=str(file.get('name','')).strip() if isinstance(file,dict) else ''; content_type=file.get('contentType') if isinstance(file,dict) else None; size=file.get('size') if isinstance(file,dict) else None
         if not name or content_type not in ALLOWED:raise ValueError(f'Tipo de archivo no permitido: {content_type}')
-        if not isinstance(size,int) or size<=0 or size>MAX_SIZE:raise ValueError(f'El archivo {name} debe pesar menos de 5 MB')
+        if not isinstance(size,int) or size<=0 or size>MAX_SIZE:raise ValueError(f'El archivo {name} debe pesar menos de 4 MB')
         evidence.append({'name':name[:160],'contentType':content_type,'size':size})
     claim['evidence']=evidence; return claim
 
@@ -151,6 +184,6 @@ def json_safe(value):
     if isinstance(value,dict):return {k:json_safe(v) for k,v in value.items()}
     return value
 def response(status,body_value):
-    headers={'Access-Control-Allow-Origin':ORIGIN,'Access-Control-Allow-Headers':'content-type,authorization','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Cache-Control':'no-store'}
+    headers={'Access-Control-Allow-Origin':ORIGIN,'Access-Control-Allow-Headers':'content-type,authorization','Access-Control-Allow-Methods':'GET,POST,PUT,OPTIONS','Cache-Control':'no-store'}
     if body_value is None:return {'statusCode':status,'headers':headers,'body':''}
     headers['Content-Type']='application/json'; return {'statusCode':status,'headers':headers,'body':json.dumps(json_safe(body_value),ensure_ascii=False)}

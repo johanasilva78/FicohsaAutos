@@ -51,6 +51,7 @@ Resources:
         - S3WritePolicy: { BucketName: !Ref EvidenceBucket }
         - SQSSendMessagePolicy: { QueueName: !GetAtt AnalysisQueue.QueueName }
       Events:
+        ListClaims: { Type: HttpApi, Properties: { ApiId: !Ref ClaimsApi, Path: /claims, Method: GET } }
         CreateClaim: { Type: HttpApi, Properties: { ApiId: !Ref ClaimsApi, Path: /claims, Method: POST } }
         GetClaim: { Type: HttpApi, Properties: { ApiId: !Ref ClaimsApi, Path: /claims/{id}, Method: GET } }
         AnalyzeClaim: { Type: HttpApi, Properties: { ApiId: !Ref ClaimsApi, Path: /claims/{id}/analyze, Method: POST } }

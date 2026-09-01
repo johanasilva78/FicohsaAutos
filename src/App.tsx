@@ -1,13 +1,13 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, BarChart3, Bell, CalendarDays,
-  Car, Check, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Clock3,
-  Download, Eye, FileCheck2, FileImage, FileText, Filter, Gauge, LayoutDashboard,
-  ListFilter, Menu, MessageSquareText, MoreHorizontal, Paperclip, Plus, Search,
-  Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, UploadCloud,
-  UserRound, UsersRound, X, XCircle,
+  Car, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3,
+  Download, FileCheck2, FileImage, FileText, Filter, Gauge, LayoutDashboard,
+  ListFilter, Menu, MoreHorizontal, Paperclip, Plus, Search,
+  Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, UploadCloud,
+  UsersRound, X,
 } from 'lucide-react'
-import { registerAndAnalyze, type ClaimRegistration } from './api/claims'
+import { listClaims, registerAndAnalyze, type ApiClaim, type ClaimRegistration } from './api/claims'
 
 type View = 'dashboard' | 'cases' | 'reports' | 'new' | 'detail'
 type Risk = 'Alto' | 'Medio' | 'Bajo'
@@ -22,22 +22,16 @@ type Claim = {
   score: number
   status: string
   reason: string
+  policyNumber: string
+  occurredAt: string
+  location: string
+  description: string
+  recommendation: string
+  confidence: number
+  findings: { title:string; detail:string; impact:number; evidence:string }[]
+  evidence: { name:string; contentType:string; size:number; status?:string }[]
+  createdAt: string
 }
-
-const claims: Claim[] = [
-  { id: 'SIN-2026-00481', insured: 'Carlos Mendoza', vehicle: 'Toyota Hilux 2023', plate: 'HAB 4821', date: '31 ago, 2026', risk: 'Alto', score: 89, status: 'Escalado', reason: 'Patrón recurrente y posible duplicidad' },
-  { id: 'SIN-2026-00480', insured: 'María López', vehicle: 'Honda CR-V 2022', plate: 'HAD 1934', date: '31 ago, 2026', risk: 'Bajo', score: 18, status: 'Por resolver', reason: 'Sin hallazgos relevantes' },
-  { id: 'SIN-2026-00479', insured: 'Roberto Aguilar', vehicle: 'Ford Ranger 2021', plate: 'HAA 7602', date: '30 ago, 2026', risk: 'Medio', score: 57, status: 'En revisión', reason: 'Notificación tardía del siniestro' },
-  { id: 'SIN-2026-00478', insured: 'Ana Martínez', vehicle: 'Hyundai Tucson 2024', plate: 'HBC 2456', date: '30 ago, 2026', risk: 'Alto', score: 82, status: 'Investigación', reason: 'Inconsistencias en imágenes y relato' },
-  { id: 'SIN-2026-00477', insured: 'Jorge Hernández', vehicle: 'Kia Sportage 2020', plate: 'HAW 9823', date: '29 ago, 2026', risk: 'Bajo', score: 12, status: 'Aprobado', reason: 'Validaciones completadas' },
-  { id: 'SIN-2026-00476', insured: 'Diana Flores', vehicle: 'Nissan Frontier 2022', plate: 'HAP 3308', date: '29 ago, 2026', risk: 'Medio', score: 64, status: 'En revisión', reason: 'Documentación incompleta' },
-]
-
-const monthly = [
-  { m: 'Mar', total: 58, suspicious: 19 }, { m: 'Abr', total: 72, suspicious: 25 },
-  { m: 'May', total: 66, suspicious: 18 }, { m: 'Jun', total: 85, suspicious: 31 },
-  { m: 'Jul', total: 78, suspicious: 26 }, { m: 'Ago', total: 96, suspicious: 38 },
-]
 
 function Logo({ compact = false }: { compact?: boolean }) {
   return <div className="brand" aria-label="Ficohsa Seguros">
@@ -50,7 +44,7 @@ function RiskPill({ risk, score }: { risk: Risk, score?: number }) {
   return <span className={`risk risk-${risk.toLowerCase()}`}><i /> {risk}{score !== undefined && ` · ${score}`}</span>
 }
 
-function Sidebar({ view, setView, open, close }: { view: View, setView: (v: View) => void, open: boolean, close: () => void }) {
+function Sidebar({ view, setView, open, close, claimCount }: { view: View, setView: (v: View) => void, open: boolean, close: () => void, claimCount:number }) {
   const go = (v: View) => { setView(v); close() }
   return <>
     <div className={`mobile-scrim ${open ? 'show' : ''}`} onClick={close} />
@@ -59,17 +53,17 @@ function Sidebar({ view, setView, open, close }: { view: View, setView: (v: View
       <div className="product-name"><ShieldCheck size={17}/><span>Gestión de Siniestros</span></div>
       <nav>
         <button className={view === 'dashboard' ? 'active' : ''} onClick={() => go('dashboard')}><LayoutDashboard/>Resumen</button>
-        <button className={view === 'cases' || view === 'detail' ? 'active' : ''} onClick={() => go('cases')}><FileText/>Siniestros <b>14</b></button>
+        <button className={view === 'cases' || view === 'detail' ? 'active' : ''} onClick={() => go('cases')}><FileText/>Siniestros <b>{claimCount}</b></button>
         <button onClick={() => go('new')}><Sparkles/>Nuevo análisis</button>
         <button className={view === 'reports' ? 'active' : ''} onClick={() => go('reports')}><BarChart3/>Reportes</button>
         <span className="nav-label">GESTIÓN</span>
-        <button><UsersRound/>Investigadores</button>
-        <button><ListFilter/>Reglas de negocio</button>
-        <button><Activity/>Registro de actividad</button>
+        <button disabled title="Requiere el servicio de gestión de investigadores"><UsersRound/>Investigadores</button>
+        <button disabled title="Requiere el servicio de reglas de negocio"><ListFilter/>Reglas de negocio</button>
+        <button disabled title="Requiere el servicio de auditoría"><Activity/>Registro de actividad</button>
       </nav>
       <div className="sidebar-bottom">
-        <button><CircleHelp/>Centro de ayuda</button>
-        <button><Settings/>Configuración</button>
+        <button disabled title="Módulo aún no conectado"><CircleHelp/>Centro de ayuda</button>
+        <button disabled title="Módulo aún no conectado"><Settings/>Configuración</button>
         <div className="user-card"><div className="avatar">LM</div><div><strong>Laura Mejía</strong><small>Analista Sr.</small></div><MoreHorizontal size={18}/></div>
       </div>
     </aside>
@@ -79,45 +73,61 @@ function Sidebar({ view, setView, open, close }: { view: View, setView: (v: View
 function Topbar({ title, onMenu }: { title: string, onMenu: () => void }) {
   return <header className="topbar">
     <div className="top-title"><button className="icon-btn mobile-only" onClick={onMenu} aria-label="Abrir menú"><Menu/></button><div><span>Ficohsa Seguros Honduras</span><h2>{title}</h2></div></div>
-    <div className="top-actions"><button className="icon-btn notification" aria-label="Notificaciones"><Bell/><i/></button><button className="help"><CircleHelp/>Ayuda</button></div>
+    <div className="top-actions"><button className="icon-btn notification" disabled aria-label="Notificaciones no conectadas" title="Módulo aún no conectado"><Bell/><i/></button><button className="help" disabled title="Módulo aún no conectado"><CircleHelp/>Ayuda</button></div>
   </header>
 }
 
-function MetricCard({ label, value, delta, icon, tone }: { label: string, value: string, delta: string, icon: React.ReactNode, tone: string }) {
+function MetricCard({ label, value, note, icon, tone }: { label: string, value: string, note: string, icon: React.ReactNode, tone: string }) {
   return <article className="metric-card">
     <div className={`metric-icon ${tone}`}>{icon}</div>
-    <div className="metric-copy"><span>{label}</span><strong>{value}</strong><small><b>{delta}</b> vs. mes anterior</small></div>
-    <button className="icon-btn"><MoreHorizontal/></button>
+    <div className="metric-copy"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>
   </article>
 }
 
-function Dashboard({ setView, openClaim }: { setView: (v: View) => void, openClaim: (c: Claim) => void }) {
+function EmptyState({ title, text, action }: { title:string; text:string; action?:React.ReactNode }) {
+  return <div className="empty-state"><FileText/><strong>{title}</strong><p>{text}</p>{action}</div>
+}
+
+function claimAnalytics(items:Claim[]) {
+  const completed=items.filter(item=>item.status==='Analizado')
+  const high=items.filter(item=>item.risk==='Alto').length
+  const medium=items.filter(item=>item.risk==='Medio').length
+  const low=items.filter(item=>item.risk==='Bajo').length
+  const pending=items.length-completed.length
+  const months=Array.from({length:6},(_,index)=>{const date=new Date();date.setDate(1);date.setMonth(date.getMonth()-(5-index));return date})
+  const monthly=months.map(date=>{const month=date.getMonth(),year=date.getFullYear();const matches=items.filter(item=>{const d=new Date(item.createdAt);return d.getMonth()===month&&d.getFullYear()===year});return {m:date.toLocaleDateString('es-HN',{month:'short'}).replace('.',''),total:matches.length,suspicious:matches.filter(item=>item.risk==='Alto').length}})
+  const max=Math.max(1,...monthly.map(item=>item.total))
+  return {completed,high,medium,low,pending,monthly:monthly.map(item=>({...item,totalHeight:item.total/max*100,suspiciousHeight:item.suspicious/max*100}))}
+}
+
+function Dashboard({ setView, openClaim, items, loading, error, retry }: { setView: (v: View) => void, openClaim: (c: Claim) => void, items: Claim[], loading:boolean, error:string, retry:()=>void }) {
+  const stats=claimAnalytics(items)
   return <div className="page dashboard-page">
     <section className="welcome-row"><div><h1>Buenos días, Laura</h1><p>Este es el estado de los siniestros y alertas de fraude hoy.</p></div><button className="primary" onClick={() => setView('new')}><Plus/>Nuevo análisis</button></section>
     <section className="metrics-grid">
-      <MetricCard label="Siniestros analizados" value="1,284" delta="+12.4%" icon={<FileCheck2/>} tone="blue"/>
-      <MetricCard label="Sospechas detectadas" value="96" delta="+8.2%" icon={<ShieldAlert/>} tone="red"/>
-      <MetricCard label="Casos confirmados" value="31" delta="+4.6%" icon={<CheckCircle2/>} tone="green"/>
-      <MetricCard label="En revisión" value="14" delta="−2.1%" icon={<Clock3/>} tone="amber"/>
+      <MetricCard label="Siniestros registrados" value={String(items.length)} note="Total disponible en el sistema" icon={<FileCheck2/>} tone="blue"/>
+      <MetricCard label="Riesgo alto" value={String(stats.high)} note="Requieren atención prioritaria" icon={<ShieldAlert/>} tone="red"/>
+      <MetricCard label="Análisis completados" value={String(stats.completed.length)} note="Procesados por el motor" icon={<CheckCircle2/>} tone="green"/>
+      <MetricCard label="En proceso" value={String(stats.pending)} note="Pendientes o con error" icon={<Clock3/>} tone="amber"/>
     </section>
     <section className="dashboard-grid">
       <article className="panel trend-panel">
-        <div className="panel-head"><div><h3>Tendencia de siniestros</h3><p>Comportamiento de los últimos 6 meses</p></div><button className="select-btn"><CalendarDays/>Últimos 6 meses<ChevronDown/></button></div>
+        <div className="panel-head"><div><h3>Tendencia de siniestros</h3><p>Comportamiento de los últimos 6 meses</p></div><span className="select-btn"><CalendarDays/>Últimos 6 meses</span></div>
         <div className="chart-legend"><span><i className="blue-dot"/>Analizados</span><span><i className="red-dot"/>Sospechosos</span></div>
         <div className="bar-chart">
-          {monthly.map(x => <div className="bar-group" key={x.m}><div className="bars"><div className="bar total" style={{height: `${x.total}%`}}/><div className="bar suspicious" style={{height: `${x.suspicious}%`}}/></div><span>{x.m}</span></div>)}
+          {stats.monthly.map(x => <div className="bar-group" key={x.m}><div className="bars"><div className="bar total" title={`${x.total} registrados`} style={{height: `${x.totalHeight}%`}}/><div className="bar suspicious" title={`${x.suspicious} de riesgo alto`} style={{height: `${x.suspiciousHeight}%`}}/></div><span>{x.m}</span></div>)}
         </div>
       </article>
       <article className="panel risk-panel">
-        <div className="panel-head"><div><h3>Distribución de riesgo</h3><p>Siniestros del mes actual</p></div><button className="icon-btn"><MoreHorizontal/></button></div>
-        <div className="donut-row"><div className="donut"><div><strong>96</strong><span>Total alertas</span></div></div>
-          <div className="risk-legend"><div><i className="high"/><span>Riesgo alto<small>Requiere investigación</small></span><strong>31</strong></div><div><i className="medium"/><span>Riesgo medio<small>Revisión manual</small></span><strong>42</strong></div><div><i className="low"/><span>Riesgo bajo<small>Monitoreo</small></span><strong>23</strong></div></div>
+        <div className="panel-head"><div><h3>Distribución de riesgo</h3><p>Todos los siniestros disponibles</p></div></div>
+        <div className="donut-row"><div className="donut" style={{background:`conic-gradient(#e83e49 0 ${items.length?stats.high/items.length*100:0}%,#efb04a 0 ${items.length?(stats.high+stats.medium)/items.length*100:0}%,#2fac82 0)`}}><div><strong>{items.length}</strong><span>Total casos</span></div></div>
+          <div className="risk-legend"><div><i className="high"/><span>Riesgo alto<small>Requiere investigación</small></span><strong>{stats.high}</strong></div><div><i className="medium"/><span>Riesgo medio<small>Revisión manual</small></span><strong>{stats.medium}</strong></div><div><i className="low"/><span>Riesgo bajo<small>Monitoreo</small></span><strong>{stats.low}</strong></div></div>
         </div>
       </article>
     </section>
     <section className="panel cases-panel">
       <div className="panel-head"><div><h3>Siniestros recientes</h3><p>Últimos casos evaluados por el motor de análisis</p></div><button className="text-btn" onClick={() => setView('cases')}>Ver todos <ArrowRight/></button></div>
-      <ClaimsTable data={claims.slice(0, 5)} openClaim={openClaim}/>
+      {loading ? <div className="loading-state"><span className="spinner dark"/>Cargando siniestros...</div> : error ? <EmptyState title="No se pudieron cargar los siniestros" text={error} action={<button className="secondary" onClick={retry}>Reintentar</button>}/> : items.length ? <ClaimsTable data={items.slice(0, 5)} openClaim={openClaim}/> : <EmptyState title="Aún no hay siniestros" text="Registra el primer expediente para comenzar el análisis." action={<button className="primary" onClick={()=>setView('new')}><Plus/>Nuevo análisis</button>}/>}
     </section>
   </div>
 }
@@ -128,13 +138,17 @@ function ClaimsTable({ data, openClaim }: { data: Claim[], openClaim: (c: Claim)
   </tbody></table></div>
 }
 
-function Cases({ openClaim, setView }: { openClaim: (c: Claim) => void, setView: (v: View) => void }) {
+function Cases({ openClaim, setView, items, loading, error, retry }: { openClaim: (c: Claim) => void, setView: (v: View) => void, items: Claim[], loading:boolean, error:string, retry:()=>void }) {
   const [query, setQuery] = useState('')
   const [risk, setRisk] = useState('Todos')
-  const filtered = useMemo(() => claims.filter(c => (risk === 'Todos' || c.risk === risk) && `${c.id} ${c.insured} ${c.plate}`.toLowerCase().includes(query.toLowerCase())), [query, risk])
+  const [status,setStatus]=useState('Todos')
+  const [showMore,setShowMore]=useState(false)
+  const statuses=useMemo(()=>Array.from(new Set(items.map(item=>item.status))),[items])
+  const filtered = useMemo(() => items.filter(c => (risk === 'Todos' || c.risk === risk) && (status==='Todos'||c.status===status) && `${c.id} ${c.insured} ${c.plate} ${c.vehicle} ${c.reason}`.toLowerCase().includes(query.toLowerCase())), [items, query, risk,status])
   return <div className="page"><section className="welcome-row"><div><h1>Siniestros</h1><p>Consulta, analiza y da seguimiento a todos los casos.</p></div><button className="primary" onClick={() => setView('new')}><Plus/>Nuevo análisis</button></section>
-    <section className="panel cases-panel full-list"><div className="filterbar"><div className="searchbox"><Search/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar por siniestro, asegurado o placa..."/></div><div className="risk-filters">{['Todos','Alto','Medio','Bajo'].map(x => <button className={risk === x ? 'active' : ''} onClick={() => setRisk(x)} key={x}>{x}</button>)}</div><button className="select-btn"><Filter/>Más filtros</button></div>
-      <div className="result-count">{filtered.length} de {claims.length} siniestros</div><ClaimsTable data={filtered} openClaim={openClaim}/>
+    <section className="panel cases-panel full-list"><div className="filterbar"><div className="searchbox"><Search/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar por siniestro, asegurado o placa..."/></div><div className="risk-filters">{['Todos','Alto','Medio','Bajo'].map(x => <button className={risk === x ? 'active' : ''} onClick={() => setRisk(x)} key={x}>{x}</button>)}</div><button className={`select-btn ${showMore?'active':''}`} onClick={()=>setShowMore(!showMore)}><Filter/>Más filtros</button></div>
+      {showMore&&<div className="advanced-filters"><label>Estado<select value={status} onChange={event=>setStatus(event.target.value)}><option>Todos</option>{statuses.map(value=><option key={value}>{value}</option>)}</select></label><button className="text-btn" onClick={()=>{setQuery('');setRisk('Todos');setStatus('Todos')}}>Limpiar filtros</button></div>}
+      <div className="result-count">{filtered.length} de {items.length} siniestros</div>{loading?<div className="loading-state"><span className="spinner dark"/>Cargando siniestros...</div>:error?<EmptyState title="No se pudieron cargar los siniestros" text={error} action={<button className="secondary" onClick={retry}>Reintentar</button>}/>:filtered.length?<ClaimsTable data={filtered} openClaim={openClaim}/>:<EmptyState title="Sin resultados" text="Ajusta los filtros o registra un nuevo siniestro."/>}
     </section>
   </div>
 }
@@ -159,7 +173,7 @@ function NewAnalysis({ onDone, onCancel }: { onDone: (claim: Claim) => void, onC
       setAnalyzing(true); setError('')
       try {
         const saved=await registerAndAnalyze(form,files)
-        onDone({id:saved.id,insured:saved.insuredName,vehicle:saved.vehicle,plate:saved.plate,date:new Date(saved.createdAt).toLocaleDateString('es-HN',{day:'2-digit',month:'short',year:'numeric'}),risk:saved.analysis?.risk||'Medio',score:saved.analysis?.score||0,status:saved.status==='COMPLETED'?'Analizado':'En análisis',reason:saved.analysis?.summary||'Análisis solicitado'})
+        onDone(toClaim(saved))
       } catch (cause) { setError(cause instanceof Error?cause.message:'No fue posible registrar el siniestro'); setAnalyzing(false) }
     }
   }
@@ -172,7 +186,7 @@ function NewAnalysis({ onDone, onCancel }: { onDone: (claim: Claim) => void, onC
       {step === 1 && <><div className="section-heading"><span><Car/></span><div><h3>Datos del siniestro</h3><p>Completa los campos obligatorios para identificar el caso.</p></div></div>
         <div className="form-grid"><label>Número de póliza *<div className="input-action"><input placeholder="Ej. AUT-HN-000001" {...field('policyNumber')}/><button type="button" onClick={validatePolicy}>Validar</button></div>{policyValidated&&<small className="valid"><CheckCircle2/>Formato válido para continuar</small>}</label><label>Fecha y hora del siniestro *<input type="datetime-local" {...field('occurredAt')}/></label><label>Nombre del asegurado *<input placeholder="Nombre completo" {...field('insuredName')}/></label><label>Documento de identidad *<input placeholder="Documento del asegurado" {...field('identityDocument')}/></label><label>Vehículo *<input placeholder="Marca, modelo y año" {...field('vehicle')}/></label><label>Placa *<input placeholder="Ej. HAB 4821" {...field('plate')}/></label><label className="wide">Lugar del siniestro *<input placeholder="Ciudad y ubicación del accidente" {...field('location')}/></label><label className="wide">Descripción del accidente *<textarea placeholder="Describe cómo ocurrió el accidente" maxLength={2000} {...field('description')}/><small className="counter">{form.description.length} / 2000</small></label></div></>}
       {step === 2 && <><div className="section-heading"><span><Paperclip/></span><div><h3>Documentos y evidencias</h3><p>Adjunta los soportes. El sistema aplicará OCR y validaciones de integridad.</p></div></div>
-        <input hidden multiple type="file" accept="application/pdf,image/jpeg,image/png,image/tiff" ref={input} onChange={e => addFiles(e.target.files)}/><button className="upload-zone" onClick={() => input.current?.click()}><UploadCloud/><strong>Arrastra los archivos o haz clic para buscar</strong><span>PDF, JPG, PNG o TIFF · Máximo 5 MB por archivo</span></button>
+        <input hidden multiple type="file" accept="application/pdf,image/jpeg,image/png,image/tiff" ref={input} onChange={e => addFiles(e.target.files)}/><button className="upload-zone" onClick={() => input.current?.click()}><UploadCloud/><strong>Arrastra los archivos o haz clic para buscar</strong><span>PDF, JPG, PNG o TIFF · Máximo 4 MB por archivo</span></button>
         <div className="file-list"><h4>Archivos cargados <span>{files.length}</span></h4>{files.map((f,i) => <div className="file" key={`${f.name}-${i}`}><span className={f.type==='application/pdf' ? 'pdf' : 'image'}>{f.type==='application/pdf' ? <FileText/> : <FileImage/>}</span><div><strong>{f.name}</strong><small>{(f.size/1024/1024).toFixed(1)} MB · Listo para carga segura</small></div><CheckCircle2 className="file-check"/><button className="icon-btn" onClick={() => setFiles(files.filter((_,n) => n !== i))}><X/></button></div>)}</div>
         <div className="doc-tip"><Sparkles/><div><strong>Recomendación del asistente</strong><p>Incluye declaración del conductor, licencia, identidad, informe policial y fotografías de todos los ángulos.</p></div></div></>}
       {step === 3 && <><div className="section-heading"><span><ShieldCheck/></span><div><h3>Revisa antes de analizar</h3><p>El motor evaluará 24 reglas, documentos e imágenes adjuntas.</p></div></div>
@@ -185,51 +199,67 @@ function NewAnalysis({ onDone, onCancel }: { onDone: (claim: Claim) => void, onC
   </div>
 }
 
+function downloadText(name:string,content:string,type='text/plain') { const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download=name;anchor.click();URL.revokeObjectURL(url) }
+
 function ClaimDetail({ claim, back }: { claim: Claim, back: () => void }) {
+  const riskCopy={Alto:['Alta probabilidad de irregularidad','El análisis encontró señales que requieren investigación antes de emitir una resolución.'],Medio:['El caso requiere revisión manual','El motor encontró señales que deben ser revisadas por un analista.'],Bajo:['Baja probabilidad de irregularidad','No se encontraron señales de riesgo relevantes con la información disponible.']}[claim.risk]
+  const exportReport=()=>downloadText(`${claim.id}.txt`,[`Informe de siniestro ${claim.id}`,`Asegurado: ${claim.insured}`,`Vehículo: ${claim.vehicle} · ${claim.plate}`,`Riesgo: ${claim.risk} (${claim.score}/100)`,`Recomendación: ${claim.recommendation}`,`Resumen: ${claim.reason}`,'',...claim.findings.map((finding,index)=>`${index+1}. ${finding.title} (+${finding.impact}): ${finding.detail}`)].join('\n'))
   return <div className="page detail-page">
     <button className="back-link" onClick={back}><ArrowLeft/>Volver a siniestros</button>
-    <section className="detail-title"><div><div className="eyebrow">SINIESTRO · {claim.date.toUpperCase()}</div><h1>{claim.id}</h1><p>{claim.insured} · {claim.vehicle} · {claim.plate}</p></div><div className="detail-actions"><button className="secondary"><Download/>Exportar informe</button><button className="primary"><Send/>Asignar investigador</button></div></section>
-    <section className="score-hero panel"><div className="score-gauge"><svg viewBox="0 0 120 70"><path d="M15 60 A45 45 0 0 1 105 60"/><path className="fill" d="M15 60 A45 45 0 0 1 105 60"/></svg><strong>{claim.score}</strong><span>/ 100</span></div><div className="score-copy"><RiskPill risk={claim.risk}/><h2>Alta probabilidad de irregularidad</h2><p>El análisis automático encontró señales que requieren investigación antes de emitir una resolución.</p></div><div className="score-meta"><div><small>DECISIÓN SUGERIDA</small><strong><AlertTriangle/>Escalar a investigación</strong></div><div><small>CONFIANZA DEL MODELO</small><strong>94.2%</strong></div></div></section>
+    <section className="detail-title"><div><div className="eyebrow">SINIESTRO · {claim.date.toUpperCase()}</div><h1>{claim.id}</h1><p>{claim.insured} · {claim.vehicle} · {claim.plate}</p></div><div className="detail-actions"><button className="secondary" onClick={exportReport}><Download/>Exportar informe</button></div></section>
+    <section className={`score-hero panel tone-${claim.risk.toLowerCase()}`}><div className="score-gauge"><svg viewBox="0 0 120 70"><path d="M15 60 A45 45 0 0 1 105 60"/><path className="fill" style={{strokeDasharray:`${claim.score*1.42} 142`}} d="M15 60 A45 45 0 0 1 105 60"/></svg><strong>{claim.score}</strong><span>/ 100</span></div><div className="score-copy"><RiskPill risk={claim.risk}/><h2>{riskCopy[0]}</h2><p>{claim.reason||riskCopy[1]}</p></div><div className="score-meta"><div><small>DECISIÓN SUGERIDA</small><strong><AlertTriangle/>{claim.recommendation}</strong></div><div><small>CONFIANZA DEL MODELO</small><strong>{claim.confidence?`${(claim.confidence*100).toFixed(1)}%`:'No informada'}</strong></div></div></section>
     <div className="detail-grid">
-      <section className="panel findings"><div className="panel-head"><div><h3>Hallazgos principales</h3><p>Señales ordenadas por impacto en el score</p></div><span className="count-badge">4 hallazgos</span></div>
-        <Finding tone="red" icon={<FileCheck2/>} title="Posible reclamo duplicado" score="+32" text="Coincidencia del 87% con SIN-2026-00192: mismo vehículo, ubicación y patrón de daño."/>
-        <Finding tone="red" icon={<FileImage/>} title="Inconsistencia en metadatos" score="+24" text="Dos fotografías fueron capturadas 36 horas antes de la fecha declarada del accidente."/>
-        <Finding tone="amber" icon={<Clock3/>} title="Notificación tardía" score="+18" text="El siniestro fue reportado 46 horas después del evento; la media del perfil es 3.2 horas."/>
-        <Finding tone="amber" icon={<MessageSquareText/>} title="Contradicción en la declaración" score="+15" text="La dirección del impacto descrita no coincide con el análisis visual del vehículo."/>
+      <section className="panel findings"><div className="panel-head"><div><h3>Hallazgos principales</h3><p>Señales ordenadas por impacto en el score</p></div><span className="count-badge">{claim.findings.length} hallazgos</span></div>
+        {claim.findings.length?claim.findings.map((finding,index)=><Finding key={`${finding.title}-${index}`} tone={finding.impact>=20?'red':'amber'} icon={finding.evidence.toLowerCase().includes('imagen')?<FileImage/>:<FileCheck2/>} title={finding.title} score={`+${finding.impact}`} text={finding.detail}/>):<EmptyState title="Sin hallazgos registrados" text="El análisis no devolvió señales explicables para este expediente."/>}
       </section>
       <aside className="detail-side">
-        <section className="panel case-info"><div className="panel-head"><h3>Información del caso</h3><button className="text-btn">Editar</button></div><Info label="Póliza" value="AUT-HN-884291"/><Info label="Cobertura" value="Todo riesgo"/><Info label="Monto estimado" value="L 186,400.00"/><Info label="Fecha del evento" value="29 ago, 2026 · 10:40 p. m."/><Info label="Ubicación" value="Tegucigalpa, Francisco Morazán"/></section>
-        <section className="panel documents"><div className="panel-head"><h3>Evidencias</h3><span>5 archivos</span></div><div><FileText/><span><strong>Declaración del conductor</strong><small>OCR completado · 98%</small></span><button className="icon-btn"><Eye/></button></div><div><FileImage/><span><strong>Fotografías del vehículo</strong><small>3 imágenes analizadas</small></span><button className="icon-btn"><Eye/></button></div><div><FileText/><span><strong>Informe policial</strong><small>Validado</small></span><button className="icon-btn"><Eye/></button></div></section>
+        <section className="panel case-info"><div className="panel-head"><h3>Información del caso</h3></div><Info label="Póliza" value={claim.policyNumber}/><Info label="Fecha del evento" value={new Date(claim.occurredAt).toLocaleString('es-HN')}/><Info label="Ubicación" value={claim.location}/><Info label="Estado" value={claim.status}/></section>
+        <section className="panel documents"><div className="panel-head"><h3>Evidencias</h3><span>{claim.evidence.length} archivos</span></div>{claim.evidence.length?claim.evidence.map((file,index)=><div key={`${file.name}-${index}`}>{file.contentType.startsWith('image/')?<FileImage/>:<FileText/>}<span><strong>{file.name}</strong><small>{(file.size/1024/1024).toFixed(1)} MB · {file.status||'Procesado'}</small></span></div>):<p className="empty-inline">No se adjuntaron evidencias.</p>}</section>
       </aside>
     </div>
-    <section className="panel timeline"><div className="panel-head"><div><h3>Actividad del caso</h3><p>Trazabilidad completa de acciones y decisiones</p></div></div><div className="timeline-list"><div><i className="done"><Check/></i><span><strong>Análisis automático completado</strong><small>Motor de riesgo · Hoy, 10:31 a. m.</small></span></div><div><i><UploadCloud/></i><span><strong>Documentos cargados y procesados</strong><small>Laura Mejía · Hoy, 10:29 a. m.</small></span></div><div><i><Plus/></i><span><strong>Siniestro registrado</strong><small>Integración Core Seguros · Hoy, 10:27 a. m.</small></span></div></div></section>
+    <section className="panel timeline"><div className="panel-head"><div><h3>Actividad del caso</h3><p>Trazabilidad disponible para el expediente</p></div></div><div className="timeline-list">{claim.status==='Analizado'&&<div><i className="done"><Check/></i><span><strong>Análisis automático completado</strong><small>Motor de riesgo</small></span></div>}{claim.evidence.length>0&&<div><i><UploadCloud/></i><span><strong>{claim.evidence.length} evidencias registradas</strong><small>Carga segura del expediente</small></span></div>}<div><i><Plus/></i><span><strong>Siniestro registrado</strong><small>{new Date(claim.createdAt).toLocaleString('es-HN')}</small></span></div></div></section>
   </div>
 }
 
 function Finding({ tone, icon, title, score, text }: { tone: string, icon: React.ReactNode, title: string, score: string, text: string }) {
-  return <div className="finding"><span className={tone}>{icon}</span><div><div><strong>{title}</strong><b className={tone}>{score} pts</b></div><p>{text}</p><button>Ver evidencia <ChevronRight/></button></div></div>
+  return <div className="finding"><span className={tone}>{icon}</span><div><div><strong>{title}</strong><b className={tone}>{score} pts</b></div><p>{text}</p></div></div>
 }
 
 function Info({label,value}:{label:string,value:string}) { return <div className="info-row"><span>{label}</span><strong>{value}</strong></div> }
 
-function Reports() {
-  const reasons = [{n:'Documentación inconsistente',v:78},{n:'Reclamo duplicado',v:61},{n:'Notificación tardía',v:49},{n:'Patrón de daño atípico',v:38},{n:'Contradicción en declaración',v:31}]
-  return <div className="page"><section className="welcome-row"><div><h1>Reportes y analítica</h1><p>Indicadores de detección, efectividad y tendencias operativas.</p></div><button className="secondary"><Download/>Exportar reporte</button></section>
-    <div className="report-filters"><button className="select-btn"><CalendarDays/>1 – 31 agosto, 2026<ChevronDown/></button><button className="select-btn"><SlidersHorizontal/>Ficohsa Seguros Honduras<ChevronDown/></button></div>
-    <section className="metrics-grid report-metrics"><MetricCard label="Tasa de sospecha" value="7.5%" delta="+0.8%" icon={<Gauge/>} tone="red"/><MetricCard label="Fraudes confirmados" value="31" delta="+4.6%" icon={<ShieldAlert/>} tone="amber"/><MetricCard label="Precisión del modelo" value="92.8%" delta="+1.2%" icon={<Sparkles/>} tone="blue"/><MetricCard label="Ahorro estimado" value="L 4.2M" delta="+18.3%" icon={<CheckCircle2/>} tone="green"/></section>
-    <div className="reports-grid"><section className="panel reasons"><div className="panel-head"><div><h3>Principales señales detectadas</h3><p>Participación por motivo de alerta</p></div><button className="icon-btn"><MoreHorizontal/></button></div>{reasons.map((r,i)=><div className="reason" key={r.n}><span>{i+1}</span><div><div><strong>{r.n}</strong><b>{r.v} casos</b></div><i><em style={{width:`${r.v}%`}}/></i></div></div>)}</section>
-      <section className="panel resolution"><div className="panel-head"><div><h3>Resoluciones</h3><p>Resultado de los casos analizados</p></div></div><div className="resolution-ring"><div><strong>1,284</strong><span>casos</span></div></div><div className="resolution-legend"><span><i className="green"/>Aprobados <b>1,142</b></span><span><i className="red"/>Rechazados <b>31</b></span><span><i className="amber"/>En revisión <b>111</b></span></div></section></div>
+function Reports({items}:{items:Claim[]}) {
+  const stats=claimAnalytics(items)
+  const reasonCounts=new Map<string,number>()
+  items.flatMap(item=>item.findings).forEach(finding=>reasonCounts.set(finding.title,(reasonCounts.get(finding.title)||0)+1))
+  const reasons=Array.from(reasonCounts,([n,v])=>({n,v})).sort((a,b)=>b.v-a.v).slice(0,5)
+  const maxReason=Math.max(1,...reasons.map(reason=>reason.v))
+  const analyzed=stats.completed.length
+  const average=analyzed?Math.round(stats.completed.reduce((sum,item)=>sum+item.score,0)/analyzed):0
+  const exportCsv=()=>{const rows=[['Siniestro','Asegurado','Placa','Riesgo','Score','Estado'],...items.map(item=>[item.id,item.insured,item.plate,item.risk,String(item.score),item.status])];downloadText('reporte-siniestros.csv',rows.map(row=>row.map(value=>`"${value.replaceAll('"','""')}"`).join(',')).join('\n'),'text/csv')}
+  return <div className="page"><section className="welcome-row"><div><h1>Reportes y analítica</h1><p>Indicadores de detección, efectividad y tendencias operativas.</p></div><button className="secondary" onClick={exportCsv} disabled={!items.length}><Download/>Exportar reporte</button></section>
+    <div className="report-filters"><span className="select-btn"><CalendarDays/>Datos disponibles</span><span className="select-btn"><SlidersHorizontal/>Ficohsa Seguros Honduras</span></div>
+    <section className="metrics-grid report-metrics"><MetricCard label="Tasa de riesgo alto" value={`${items.length?(stats.high/items.length*100).toFixed(1):'0.0'}%`} note={`${stats.high} casos de ${items.length}`} icon={<Gauge/>} tone="red"/><MetricCard label="Análisis completados" value={String(analyzed)} note={`${stats.pending} aún en proceso`} icon={<ShieldAlert/>} tone="amber"/><MetricCard label="Score promedio" value={String(average)} note="Sobre los casos analizados" icon={<Sparkles/>} tone="blue"/><MetricCard label="Riesgo bajo" value={String(stats.low)} note="Casos con score menor de 35" icon={<CheckCircle2/>} tone="green"/></section>
+    <div className="reports-grid"><section className="panel reasons"><div className="panel-head"><div><h3>Principales señales detectadas</h3><p>Frecuencia en los análisis disponibles</p></div></div>{reasons.length?reasons.map((r,i)=><div className="reason" key={r.n}><span>{i+1}</span><div><div><strong>{r.n}</strong><b>{r.v} casos</b></div><i><em style={{width:`${r.v/maxReason*100}%`}}/></i></div></div>):<EmptyState title="Aún no hay señales" text="Los hallazgos aparecerán cuando existan análisis completados."/>}</section>
+      <section className="panel resolution"><div className="panel-head"><div><h3>Distribución de riesgo</h3><p>Resultado de los casos registrados</p></div></div><div className="resolution-ring" style={{background:`conic-gradient(#2fac82 0 ${items.length?stats.low/items.length*100:0}%,#e83e49 0 ${items.length?(stats.low+stats.high)/items.length*100:0}%,#efb04a 0)`}}><div><strong>{items.length}</strong><span>casos</span></div></div><div className="resolution-legend"><span><i className="green"/>Riesgo bajo <b>{stats.low}</b></span><span><i className="red"/>Riesgo alto <b>{stats.high}</b></span><span><i className="amber"/>Riesgo medio <b>{stats.medium}</b></span></div></section></div>
   </div>
 }
 
+function toClaim(saved:ApiClaim):Claim{return {id:saved.id,insured:saved.insuredName,vehicle:saved.vehicle,plate:saved.plate,date:new Date(saved.createdAt).toLocaleDateString('es-HN',{day:'2-digit',month:'short',year:'numeric'}),risk:saved.analysis?.risk||'Medio',score:saved.analysis?.score||0,status:saved.status==='COMPLETED'?'Analizado':saved.status==='FAILED'?'Fallido':'En análisis',reason:saved.analysis?.summary||'Análisis solicitado',policyNumber:saved.policyNumber,occurredAt:saved.occurredAt,location:saved.location,description:saved.description,recommendation:saved.analysis?.recommendation||'Pendiente de análisis',confidence:saved.analysis?.confidence||0,findings:saved.analysis?.findings||[],evidence:saved.evidence||[],createdAt:saved.createdAt}}
+
 export default function App() {
   const [view, setView] = useState<View>('dashboard')
-  const [selected, setSelected] = useState<Claim>(claims[0])
+  const [claimItems, setClaimItems] = useState<Claim[]>([])
+  const [selected, setSelected] = useState<Claim|null>(null)
+  const [loading,setLoading]=useState(true)
+  const [loadError,setLoadError]=useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const load=()=>{setLoading(true);setLoadError('');listClaims().then(items=>setClaimItems(items.map(toClaim))).catch(error=>setLoadError(error instanceof Error?error.message:'No fue posible cargar los siniestros')).finally(()=>setLoading(false))}
+  useEffect(()=>{listClaims().then(items=>setClaimItems(items.map(toClaim))).catch(error=>setLoadError(error instanceof Error?error.message:'No fue posible cargar los siniestros')).finally(()=>setLoading(false))},[])
   const openClaim = (c: Claim) => { setSelected(c); setView('detail'); window.scrollTo({top:0}) }
+  const completeClaim = (claim:Claim) => { setClaimItems(current=>[claim,...current.filter(item=>item.id!==claim.id)]); openClaim(claim) }
   const go = (v: View) => { setView(v); window.scrollTo({top:0}) }
   const titles: Record<View,string> = { dashboard: 'Centro de análisis', cases: 'Siniestros', reports: 'Reportes', new: 'Nuevo análisis', detail: 'Detalle del siniestro' }
-  return <div className="app-shell"><Sidebar view={view} setView={go} open={menuOpen} close={() => setMenuOpen(false)}/><main><Topbar title={titles[view]} onMenu={() => setMenuOpen(true)}/>
-    {view === 'dashboard' && <Dashboard setView={go} openClaim={openClaim}/>} {view === 'cases' && <Cases openClaim={openClaim} setView={go}/>} {view === 'new' && <NewAnalysis onDone={openClaim} onCancel={() => go('cases')}/>} {view === 'detail' && <ClaimDetail claim={selected} back={() => go('cases')}/>} {view === 'reports' && <Reports/>}
+  return <div className="app-shell"><Sidebar view={view} setView={go} open={menuOpen} close={() => setMenuOpen(false)} claimCount={claimItems.length}/><main><Topbar title={titles[view]} onMenu={() => setMenuOpen(true)}/>
+    {view === 'dashboard' && <Dashboard setView={go} openClaim={openClaim} items={claimItems} loading={loading} error={loadError} retry={load}/>} {view === 'cases' && <Cases openClaim={openClaim} setView={go} items={claimItems} loading={loading} error={loadError} retry={load}/>} {view === 'new' && <NewAnalysis onDone={completeClaim} onCancel={() => go('cases')}/>} {view === 'detail' && selected && <ClaimDetail claim={selected} back={() => go('cases')}/>} {view === 'reports' && <Reports items={claimItems}/>}
   </main></div>
 }
