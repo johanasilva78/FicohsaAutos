@@ -130,7 +130,7 @@ def find_duplicates(claim_id,plate):
 
 def invoke_model(data):
     system='Eres un asistente antifraude para seguros de autos. No determines culpabilidad, no confirmes fraude y no apruebes ni rechaces reclamos. Evalúa señales explicables y recomienda revisión humana. Responde solo JSON válido con score 0-100, confidence 0-1, recommendation, summary y findings: [{title,detail,impact,evidence}].'
-    result=bedrock.converse(modelId=MODEL_ID,system=[{'text':system}],messages=[{'role':'user','content':[{'text':'Analiza sin inventar hechos:\n'+json.dumps(data,ensure_ascii=False)}]}],inferenceConfig={'maxTokens':1800,'temperature':0})
+    result=bedrock.converse(modelId=MODEL_ID,system=[{'text':system}],messages=[{'role':'user','content':[{'text':'Analiza sin inventar hechos:\n'+json.dumps(json_safe(data),ensure_ascii=False)}]}],inferenceConfig={'maxTokens':1800,'temperature':0})
     text=result['output']['message']['content'][0]['text']; match=re.search(r'\{.*\}',text,re.DOTALL)
     if not match: raise ValueError('Bedrock no devolvió JSON válido')
     return normalize_analysis(json.loads(match.group(0)))
